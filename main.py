@@ -359,7 +359,15 @@ def main(args):
             #         if hasattr(m, 'bias') and m.bias is not None:
             #             torch.nn.init.constant_(m.bias, 0)  # 将 bias 初始化为 0
             #     model_without_ddp.apply(init_weights)
-
+            else:
+                print('no pretrained weights...')
+                print('start training...')
+                for epoch in range(0, args.epochs):
+                    train_stats = train_one_epoch(
+                        model, criterion, data_loader_train, optimizer, device, epoch, args.clip_max_norm)
+                    print("Testing results for all.")
+                    test_stats, coco_evaluator = evaluate(
+                    model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir)
             
             
             

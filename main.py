@@ -42,8 +42,10 @@ def get_args_parser():
     parser.add_argument('--two_stage', default=False, action='store_true')
 
     # Model parameters
-    parser.add_argument('--frozen_weights', type=str, default=r"weights\phase_0.pth",
+    parser.add_argument('--frozen_weights', type=str, default=None,
                         help="Path to the pretrained model. If set, only the mask head will be trained")
+    # parser.add_argument('--frozen_weights', type=str, default=r"weights\phase_0.pth",
+    #                     help="Path to the pretrained model. If set, only the mask head will be trained")
 
     # * Backbone
     parser.add_argument('--backbone', default='resnet50', type=str,
@@ -326,6 +328,7 @@ def main(args):
             # checkpoint = torch.load(ckpt_path, map_location='cpu')
 
             if args.frozen_weights is not None:
+                # 加载预训练权重并测试
                 checkpoint = torch.load(args.frozen_weights, map_location='cpu')
                 missing_keys, unexpected_keys = model_without_ddp.load_state_dict(checkpoint['model'], strict=False)
                 unexpected_keys = [k for k in unexpected_keys if not (k.endswith('total_params') or k.endswith('total_ops'))]
@@ -333,31 +336,33 @@ def main(args):
                     print('Missing Keys: {}'.format(missing_keys))
                 if len(unexpected_keys) > 0:
                     print('Unexpected Keys: {}'.format(unexpected_keys))
-            else:
-                # 遍历模型层并初始化权重
-                def init_weights(m):
-                    if hasattr(m, 'weight') and m.weight is not None:
-                        torch.nn.init.kaiming_normal_(m.weight)  # 采用 Kaiming 初始化
-                    if hasattr(m, 'bias') and m.bias is not None:
-                        torch.nn.init.constant_(m.bias, 0)  # 将 bias 初始化为 0
-                model_without_ddp.detr.apply(init_weights)
+
+                p_groups = copy.deepcopy(optimizer.param_groups)
+                optimizer.load_state_dict(checkpoint['optimizer'])
+                for pg, pg_old in zip(optimizer.param_groups, p_groups):
+                    pg['lr'] = pg_old['lr']
+                    pg['initial_lr'] = pg_old['initial_lr']
+                print(optimizer.param_groups)
+                lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
+                args.override_resumed_lr_drop = True
+                if args.override_resumed_lr_drop:
+                    print('Warning: (hack) args.override_resumed_lr_drop is set to True, so args.lr_drop would override lr_drop in resumed lr_scheduler.')
+                    lr_scheduler.step_size = args.lr_drop
+                    lr_scheduler.base_lrs = list(map(lambda group: group['initial_lr'], optimizer.param_groups))
+                lr_scheduler.step(lr_scheduler.last_epoch)
+                args.start_epoch = checkpoint['epoch'] + 1
+            # else:
+            #     # 遍历模型层并初始化权重
+            #     def init_weights(m):
+            #         if hasattr(m, 'weight') and m.weight is not None:
+            #             torch.nn.init.kaiming_normal_(m.weight)  # 采用 Kaiming 初始化
+            #         if hasattr(m, 'bias') and m.bias is not None:
+            #             torch.nn.init.constant_(m.bias, 0)  # 将 bias 初始化为 0
+            #     model_without_ddp.apply(init_weights)
 
             
             
-            p_groups = copy.deepcopy(optimizer.param_groups)
-            optimizer.load_state_dict(checkpoint['optimizer'])
-            for pg, pg_old in zip(optimizer.param_groups, p_groups):
-                pg['lr'] = pg_old['lr']
-                pg['initial_lr'] = pg_old['initial_lr']
-            print(optimizer.param_groups)
-            lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
-            args.override_resumed_lr_drop = True
-            if args.override_resumed_lr_drop:
-                print('Warning: (hack) args.override_resumed_lr_drop is set to True, so args.lr_drop would override lr_drop in resumed lr_scheduler.')
-                lr_scheduler.step_size = args.lr_drop
-                lr_scheduler.base_lrs = list(map(lambda group: group['initial_lr'], optimizer.param_groups))
-            lr_scheduler.step(lr_scheduler.last_epoch)
-            args.start_epoch = checkpoint['epoch'] + 1
+            
 
  
             print("Testing all....")

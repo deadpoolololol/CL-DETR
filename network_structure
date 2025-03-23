@@ -1,0 +1,7 @@
+digraph {
+	A [label="Input Layer"]
+	B [label="Hidden Layer"]
+	C [label="Output Layer"]
+	A -> B
+	B -> C
+}

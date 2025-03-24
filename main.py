@@ -127,7 +127,7 @@ def get_args_parser():
     # incremental parameters 
     parser.add_argument('--num_of_phases', default=2, type=int)
     parser.add_argument('--cls_per_phase', default=5, type=int)
-    parser.add_argument('--data_setting', default='tfh', choices=['tfs', 'tfh'])
+    parser.add_argument('--data_setting', default='tfh', choices=['tfs', 'tfh']) # tfs 任务分步训练 tfh 任务分组训练
 
     parser.add_argument('--seed_cls', default=123, type=int)
     parser.add_argument('--seed_data', default=123, type=int)
@@ -265,8 +265,9 @@ def main(args):
                     break
             return out
 
-        for n, p in model_without_ddp.named_parameters():
-            print(n)
+        # # 打印模型层
+        # for n, p in model_without_ddp.named_parameters():
+        #     print(n)
 
         param_dicts = [
             {
@@ -390,10 +391,10 @@ def main(args):
             
 
  
-            print("Testing all....")
-            test_stats, coco_evaluator = evaluate(
-                model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir
-            )        
+            # print("Testing all....")
+            # test_stats, coco_evaluator = evaluate(
+            #     model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir
+            # )        
         else:
             if phase_idx >= 1:
                 old_model = copy.deepcopy(model)

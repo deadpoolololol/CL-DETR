@@ -50,7 +50,10 @@ class COCO:
         anns, cats, imgs = {}, {}, {}
         imgToAnns,catToImgs = defaultdict(list),defaultdict(list)
 
-        if balanced_ft:
+        # 基础类数量 总数-阶段数和每阶段类别数
+        base_cls_num = len(cls_order)-cls_per_phase*num_of_phases
+
+        if balanced_ft: # 增量阶段训练 dataset_train_balanced
             total_phase_num = phase_idx + 1
             for phase_idx in range(total_phase_num):
                 if tfs_or_tfh == 'tfs':
@@ -63,15 +66,15 @@ class COCO:
                         selected_cls_this_phase = cls_order[phase_idx*cls_per_phase:(phase_idx+1)*cls_per_phase]
                 elif tfs_or_tfh == 'tfh':
                     if phase_idx == 0:
-                        selected_cls_this_phase = cls_order[:70]
+                        selected_cls_this_phase = cls_order[:base_cls_num]
                     else:
                         if incremental_val:
                             if val_each_phase:
-                                selected_cls_this_phase = cls_order[(phase_idx-1)*cls_per_phase+70:(phase_idx)*cls_per_phase+70]
+                                selected_cls_this_phase = cls_order[(phase_idx-1)*cls_per_phase+base_cls_num:(phase_idx)*cls_per_phase+base_cls_num]
                             else:
-                                selected_cls_this_phase = cls_order[:(phase_idx)*cls_per_phase+70]
+                                selected_cls_this_phase = cls_order[:(phase_idx)*cls_per_phase+base_cls_num]
                         else:
-                            selected_cls_this_phase = cls_order[(phase_idx-1)*cls_per_phase+70:(phase_idx)*cls_per_phase+70]
+                            selected_cls_this_phase = cls_order[(phase_idx-1)*cls_per_phase+base_cls_num:(phase_idx)*cls_per_phase+base_cls_num]
                 else:
                     raise ValueError('Please set the correct data setting.')
 
@@ -195,15 +198,15 @@ class COCO:
                     selected_cls_this_phase = cls_order[phase_idx*cls_per_phase:(phase_idx+1)*cls_per_phase]
             elif tfs_or_tfh == 'tfh':
                 if phase_idx == 0:
-                    selected_cls_this_phase = cls_order[:70]
+                    selected_cls_this_phase = cls_order[:base_cls_num]
                 else:
                     if incremental_val:
                         if val_each_phase:
-                            selected_cls_this_phase = cls_order[(phase_idx-1)*cls_per_phase+70:(phase_idx)*cls_per_phase+70]
+                            selected_cls_this_phase = cls_order[(phase_idx-1)*cls_per_phase+base_cls_num:(phase_idx)*cls_per_phase+base_cls_num]
                         else:
-                            selected_cls_this_phase = cls_order[:(phase_idx)*cls_per_phase+70]
+                            selected_cls_this_phase = cls_order[:(phase_idx)*cls_per_phase+base_cls_num]
                     else:
-                        selected_cls_this_phase = cls_order[(phase_idx-1)*cls_per_phase+70:(phase_idx)*cls_per_phase+70]
+                        selected_cls_this_phase = cls_order[(phase_idx-1)*cls_per_phase+base_cls_num:(phase_idx)*cls_per_phase+base_cls_num]
             else:
                 raise ValueError('Please set the correct data setting.')
 
@@ -327,6 +330,8 @@ class COCO:
                             catToImgs[ann['category_id']].append(ann['image_id'])            
 
             print('index created!')
+        
+        print('base class order:',selected_cls_this_phase)
 
         # create class members
         self.anns = anns

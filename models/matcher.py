@@ -64,14 +64,21 @@ class HungarianMatcher(nn.Module):
             tgt_ids = torch.cat([v["labels"] for v in targets])
             tgt_bbox = torch.cat([v["boxes"] for v in targets])
 
+            # 调整索引范围（假设类别是 1-based 索引）
+            tgt_ids = tgt_ids - 1  # 确保索引从 0 开始
+
             # Compute the classification cost.
             alpha = 0.25
             gamma = 2.0
             neg_cost_class = (1 - alpha) * (out_prob ** gamma) * (-(1 - out_prob + 1e-8).log())
             pos_cost_class = alpha * ((1 - out_prob) ** gamma) * (-(out_prob + 1e-8).log())
+            # print(f"tgt_ids shape: {tgt_ids.shape}, max: {tgt_ids.max()}, min: {tgt_ids.min()}")
+            # print(f"pos_cost_class shape: {pos_cost_class.shape}")
             cost_class = pos_cost_class[:, tgt_ids] - neg_cost_class[:, tgt_ids]
 
             # Compute the L1 cost between boxes
+            # print("out_bbox shape:", out_bbox.shape)
+            # print("tgt_bbox shape:", tgt_bbox.shape)
             cost_bbox = torch.cdist(out_bbox, tgt_bbox, p=1)
 
             # Compute the giou cost betwen boxes

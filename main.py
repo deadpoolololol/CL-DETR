@@ -362,7 +362,7 @@ def main(args):
             #     model_without_ddp.apply(init_weights)
             else:
                 print('no pretrained weights...')
-                print('start training...')
+                print('start training base...')
                 for epoch in range(0, args.epochs):
                     train_stats = train_one_epoch(
                         model, criterion, data_loader_train, optimizer, device, epoch, args.clip_max_norm)

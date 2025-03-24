@@ -26,6 +26,7 @@ def get_args_parser():
     parser.add_argument('--lr_linear_proj_names', default=['reference_points', 'sampling_offsets'], type=str, nargs='+')
     parser.add_argument('--lr_linear_proj_mult', default=0.1, type=float)
     parser.add_argument('--batch_size', default=4, type=int)
+    parser.add_argument('--batch_size_val', default=16, type=int)
     parser.add_argument('--weight_decay', default=1e-4, type=float)
     parser.add_argument('--epochs', default=50, type=int)
     parser.add_argument('--lr_drop', default=40, type=int)
@@ -108,11 +109,11 @@ def get_args_parser():
     # dataset parameters
     parser.add_argument('--dataset_file', default='VOC')
     parser.add_argument('--class_nums', default=20, type=int)
-    parser.add_argument('--coco_path', default=r'E:\Project\Dataset\VOC2012\VOC2012_COCO_sub', type=str)
+    parser.add_argument('--coco_path', default=r'E:\Project\Dataset\VOC2012\VOC2012_COCO', type=str)
     parser.add_argument('--coco_panoptic_path', type=str)
     parser.add_argument('--remove_difficult', action='store_true')
 
-    parser.add_argument('--output_dir', default=r'output',
+    parser.add_argument('--output_dir', default=r'outputs',
                         help='path where to save, empty for no saving')
     parser.add_argument('--device', default='cuda',
                         help='device to use for training / testing')
@@ -179,7 +180,7 @@ def main(args):
     random.seed(seed)
 
     model, criterion, postprocessors = build_model(args)
-    print(model)
+    # print(model)
     model.to(device)
 
     model_without_ddp = model
@@ -248,13 +249,13 @@ def main(args):
         data_loader_train = DataLoader(dataset_train, batch_sampler=batch_sampler_train,
                                     collate_fn=utils.collate_fn, num_workers=args.num_workers,
                                     pin_memory=True)
-        data_loader_val = DataLoader(dataset_val, args.batch_size, sampler=sampler_val,
+        data_loader_val = DataLoader(dataset_val, args.batch_size_val, sampler=sampler_val,
                                     drop_last=False, collate_fn=utils.collate_fn, num_workers=args.num_workers,
                                     pin_memory=True)
         if phase_idx >= 1:
             data_loader_train_balanced = DataLoader(dataset_train_balanced, batch_sampler=batch_sampler_train_balanced, collate_fn=utils.collate_fn, num_workers=args.num_workers, pin_memory=True)
-            data_loader_val_old = DataLoader(dataset_val_old, args.batch_size, sampler=sampler_val_old, drop_last=False, collate_fn=utils.collate_fn, num_workers=args.num_workers, pin_memory=True)
-            data_loader_val_new = DataLoader(dataset_val_new, args.batch_size, sampler=sampler_val_new, drop_last=False, collate_fn=utils.collate_fn, num_workers=args.num_workers, pin_memory=True)
+            data_loader_val_old = DataLoader(dataset_val_old, args.batch_size_val, sampler=sampler_val_old, drop_last=False, collate_fn=utils.collate_fn, num_workers=args.num_workers, pin_memory=True)
+            data_loader_val_new = DataLoader(dataset_val_new, args.batch_size_val, sampler=sampler_val_new, drop_last=False, collate_fn=utils.collate_fn, num_workers=args.num_workers, pin_memory=True)
 
         def match_name_keywords(n, name_keywords):
             out = False
@@ -366,6 +367,21 @@ def main(args):
                 for epoch in range(0, args.epochs):
                     train_stats = train_one_epoch(
                         model, criterion, data_loader_train, optimizer, device, epoch, args.clip_max_norm)
+                    
+                    # 保存模型
+                    if args.output_dir:
+                        print("Saving base model...")
+                        checkpoint_paths = [output_dir / 'checkpoint_base.pth']
+
+                        for checkpoint_path in checkpoint_paths:
+                            utils.save_on_master({
+                                'model': model_without_ddp.state_dict(),
+                                'optimizer': optimizer.state_dict(),
+                                'lr_scheduler': lr_scheduler.state_dict(),
+                                'epoch': epoch,
+                                'args': args,
+                            }, checkpoint_path)
+
                     print("Testing results for all.")
                     test_stats, coco_evaluator = evaluate(
                     model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir)

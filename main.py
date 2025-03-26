@@ -43,7 +43,7 @@ def get_args_parser():
     parser.add_argument('--two_stage', default=False, action='store_true')
 
     # Model parameters
-    parser.add_argument('--frozen_weights', type=str, default=None,
+    parser.add_argument('--frozen_weights', type=str, default=r"outputs\phase_0\checkpoint_base.pth",
                         help="Path to the pretrained model. If set, only the mask head will be trained")
     # parser.add_argument('--frozen_weights', type=str, default=r"weights\phase_0.pth",
     #                     help="Path to the pretrained model. If set, only the mask head will be trained")
@@ -353,7 +353,30 @@ def main(args):
                     lr_scheduler.step_size = args.lr_drop
                     lr_scheduler.base_lrs = list(map(lambda group: group['initial_lr'], optimizer.param_groups))
                 lr_scheduler.step(lr_scheduler.last_epoch)
-                args.start_epoch = checkpoint['epoch'] + 1
+                args.start_epoch = checkpoint['epoch']
+                print('pretrained weights given...')
+                print('start training base...')
+                for epoch in range(args.start_epoch, args.epochs):
+                    train_stats = train_one_epoch(
+                        model, criterion, data_loader_train, optimizer, device, epoch, args.clip_max_norm)
+                    
+                    # 保存模型
+                    if args.output_dir:
+                        print("Saving base model...")
+                        checkpoint_paths = [output_dir / 'checkpoint_base.pth']
+
+                        for checkpoint_path in checkpoint_paths:
+                            utils.save_on_master({
+                                'model': model_without_ddp.state_dict(),
+                                'optimizer': optimizer.state_dict(),
+                                'lr_scheduler': lr_scheduler.state_dict(),
+                                'epoch': epoch,
+                                'args': args,
+                            }, checkpoint_path)
+
+                    print("Testing results for all.")
+                    test_stats, coco_evaluator = evaluate(
+                    model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir)
             # else:
             #     # 遍历模型层并初始化权重
             #     def init_weights(m):

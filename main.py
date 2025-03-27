@@ -26,7 +26,7 @@ def get_args_parser():
     parser.add_argument('--lr_linear_proj_names', default=['reference_points', 'sampling_offsets'], type=str, nargs='+')
     parser.add_argument('--lr_linear_proj_mult', default=0.1, type=float)
     parser.add_argument('--batch_size', default=4, type=int)
-    parser.add_argument('--batch_size_val', default=16, type=int)
+    parser.add_argument('--batch_size_val', default=8, type=int)
     parser.add_argument('--weight_decay', default=1e-4, type=float)
     parser.add_argument('--epochs', default=50, type=int)
     parser.add_argument('--lr_drop', default=40, type=int)
@@ -121,7 +121,7 @@ def get_args_parser():
     parser.add_argument('--resume', default='', help='resume from checkpoint')
     parser.add_argument('--start_epoch', default=0, type=int, metavar='N',
                         help='start epoch')
-    parser.add_argument('--num_workers', default=0, type=int)
+    parser.add_argument('--num_workers', default=1, type=int)
     parser.add_argument('--cache_mode', default=False, action='store_true', help='whether to cache images on memory')
 
     # incremental parameters 
@@ -355,6 +355,9 @@ def main(args):
                 lr_scheduler.step(lr_scheduler.last_epoch)
                 args.start_epoch = checkpoint['epoch'] + 1
                 print('pretrained weights given...')
+                print("Testing results for given weights")
+                test_stats, coco_evaluator = evaluate(
+                    model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir)
                 print('start training base...')
                 for epoch in range(args.start_epoch, args.epochs):
                     train_stats = train_one_epoch(
@@ -363,7 +366,7 @@ def main(args):
                     # 保存模型
                     if args.output_dir:
                         print("Saving base model...")
-                        checkpoint_paths = [output_dir / 'checkpoint_base.pth']
+                        checkpoint_paths = [output_dir / f'checkpoint_base_{epoch}.pth']
 
                         for checkpoint_path in checkpoint_paths:
                             utils.save_on_master({

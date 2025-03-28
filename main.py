@@ -109,7 +109,7 @@ def get_args_parser():
     # dataset parameters
     parser.add_argument('--dataset_file', default='VOC')
     parser.add_argument('--class_nums', default=20, type=int)
-    parser.add_argument('--coco_path', default=r'E:\Project\Dataset\VOC2012\VOC2012_COCO', type=str)
+    parser.add_argument('--coco_path', default=r'E:\Project\Dataset\VOC2012\VOC2012_COCO_sub', type=str)
     parser.add_argument('--coco_panoptic_path', type=str)
     parser.add_argument('--remove_difficult', action='store_true')
 

@@ -325,7 +325,7 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, out
         coco_ap_metrics.append(coco_ap_stats)  # 存储所有 AP 指标
 
     # 保存 CSV
-    csv_file = os.path.join(output_dir, "evaluation_results.csv")
+    csv_file = os.path.join(output_dir, "evaluation_results_base.csv")
     save_results_to_csv(csv_file, loss_list, class_error_list, coco_ap_metrics)
 
     # 绘制结果
@@ -335,20 +335,29 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, out
 
 
 def save_results_to_csv(csv_file, loss_list, class_error_list, coco_ap_metrics):
-    """ 保存测试结果到 CSV 文件 """
-    file_exists = os.path.exists(csv_file)
+    """ 读取已保存数据，避免重复写入 """
+    existing_epochs = set()
+
+    # 如果文件存在，先读取已有的 epoch 记录
+    if os.path.exists(csv_file):
+        with open(csv_file, mode='r', newline='') as f:
+            reader = csv.reader(f)
+            next(reader, None)  # 跳过表头
+            for row in reader:
+                if row and row[0].isdigit():  # 确保是数字
+                    existing_epochs.add(int(row[0]))
 
     with open(csv_file, mode='a', newline='') as f:
         writer = csv.writer(f)
-        if not file_exists:
+        if not existing_epochs:
             writer.writerow(["Epoch", "Loss", "Class Error", "AP", "AP50", "AP75", "APS", "APM", "APL"])  # 表头
         
-        for epoch in range(len(loss_list)):
-            writer.writerow([
-                epoch + 1, loss_list[epoch], class_error_list[epoch],
-                coco_ap_metrics[epoch][0], coco_ap_metrics[epoch][1], coco_ap_metrics[epoch][2], 
-                coco_ap_metrics[epoch][3], coco_ap_metrics[epoch][4], coco_ap_metrics[epoch][5]
-            ])
+        epoch_num = len(existing_epochs)
+        writer.writerow([
+            epoch_num + 1, loss_list[0], class_error_list[0],
+            coco_ap_metrics[0][0], coco_ap_metrics[0][1], coco_ap_metrics[0][2], 
+            coco_ap_metrics[0][3], coco_ap_metrics[0][4], coco_ap_metrics[0][5]
+        ])
 
 
 def plot_results(output_dir, loss_list, class_error_list, coco_ap_metrics):
@@ -372,7 +381,7 @@ def plot_results(output_dir, loss_list, class_error_list, coco_ap_metrics):
     fig.tight_layout()
     plt.title("Loss & Class Error over Epochs")
     plt.legend()
-    plt.savefig(os.path.join(output_dir, "loss_error_curve.png"))
+    plt.savefig(os.path.join(output_dir, "loss_error_curve_base.png"))
     plt.close()
 
     # 绘制 COCO AP 指标
@@ -389,5 +398,5 @@ def plot_results(output_dir, loss_list, class_error_list, coco_ap_metrics):
     plt.ylabel("COCO AP")
     plt.title("COCO AP Metrics over Epochs")
     plt.legend()
-    plt.savefig(os.path.join(output_dir, "coco_ap_metrics_curve.png"))
+    plt.savefig(os.path.join(output_dir, "coco_ap_metrics_curve_base.png"))
     plt.close()

@@ -20,9 +20,9 @@ from models import build_model
 
 def get_args_parser():
     parser = argparse.ArgumentParser('Deformable DETR Detector', add_help=False)
-    parser.add_argument('--lr', default=2e-3, type=float)
+    parser.add_argument('--lr', default=2e-4, type=float)
     parser.add_argument('--lr_backbone_names', default=["backbone.0"], type=str, nargs='+')
-    parser.add_argument('--lr_backbone', default=2e-4, type=float)
+    parser.add_argument('--lr_backbone', default=2e-5, type=float)
     parser.add_argument('--lr_linear_proj_names', default=['reference_points', 'sampling_offsets'], type=str, nargs='+')
     parser.add_argument('--lr_linear_proj_mult', default=0.1, type=float)
     parser.add_argument('--batch_size', default=2, type=int)
@@ -43,7 +43,7 @@ def get_args_parser():
     parser.add_argument('--two_stage', default=False, action='store_true')
 
     # Model parameters
-    parser.add_argument('--frozen_weights', type=str, default=r"outputs\phase_0\checkpoint_base.pth",
+    parser.add_argument('--frozen_weights', type=str, default=r"outputs\phase_0\checkpoint_base_3.pth",
                         help="Path to the pretrained model. If set, only the mask head will be trained")
     # parser.add_argument('--frozen_weights', type=str, default=r"weights\phase_0.pth",
     #                     help="Path to the pretrained model. If set, only the mask head will be trained")
@@ -377,7 +377,7 @@ def main(args):
                                 'args': args,
                             }, checkpoint_path)
 
-                    print("Testing results for all.")
+                    print("Testing results for base classes.")
                     test_stats, coco_evaluator = evaluate(
                     model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir)
             # else:

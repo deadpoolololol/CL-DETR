@@ -4,6 +4,9 @@ Train and eval functions used in main.py
 import math
 import os
 import sys
+import csv
+import numpy as np
+import matplotlib.pyplot as plt
 from typing import Iterable
 from util import box_ops
 import torch
@@ -155,6 +158,92 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 
+# @torch.no_grad()
+# def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, output_dir):
+#     model.eval()
+#     criterion.eval()
+
+#     metric_logger = utils.MetricLogger(delimiter="  ")
+#     metric_logger.add_meter('class_error', utils.SmoothedValue(window_size=1, fmt='{value:.2f}'))
+#     header = 'Test:'
+
+#     iou_types = tuple(k for k in ('segm', 'bbox') if k in postprocessors.keys())
+#     coco_evaluator = CocoEvaluator(base_ds, iou_types)
+#     # coco_evaluator.coco_eval[iou_types[0]].params.iouThrs = [0, 0.1, 0.5, 0.75]
+
+#     panoptic_evaluator = None
+#     if 'panoptic' in postprocessors.keys():
+#         panoptic_evaluator = PanopticEvaluator(
+#             data_loader.dataset.ann_file,
+#             data_loader.dataset.ann_folder,
+#             output_dir=os.path.join(output_dir, "panoptic_eval"),
+#         )
+
+#     for samples, targets in metric_logger.log_every(data_loader, 10, header):
+#         samples = samples.to(device)
+#         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+
+#         outputs = model(samples)
+#         loss_dict = criterion(outputs, targets)
+#         weight_dict = criterion.weight_dict
+
+#         # reduce losses over all GPUs for logging purposes
+#         loss_dict_reduced = utils.reduce_dict(loss_dict)
+#         loss_dict_reduced_scaled = {k: v * weight_dict[k]
+#                                     for k, v in loss_dict_reduced.items() if k in weight_dict}
+#         loss_dict_reduced_unscaled = {f'{k}_unscaled': v
+#                                       for k, v in loss_dict_reduced.items()}
+#         metric_logger.update(loss=sum(loss_dict_reduced_scaled.values()),
+#                              **loss_dict_reduced_scaled,
+#                              **loss_dict_reduced_unscaled)
+#         metric_logger.update(class_error=loss_dict_reduced['class_error'])
+
+#         orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)
+#         results = postprocessors['bbox'](outputs, orig_target_sizes)
+#         if 'segm' in postprocessors.keys():
+#             target_sizes = torch.stack([t["size"] for t in targets], dim=0)
+#             results = postprocessors['segm'](results, outputs, orig_target_sizes, target_sizes)
+#         res = {target['image_id'].item(): output for target, output in zip(targets, results)}
+#         if coco_evaluator is not None:
+#             coco_evaluator.update(res)
+
+#         if panoptic_evaluator is not None:
+#             res_pano = postprocessors["panoptic"](outputs, target_sizes, orig_target_sizes)
+#             for i, target in enumerate(targets):
+#                 image_id = target["image_id"].item()
+#                 file_name = f"{image_id:012d}.png"
+#                 res_pano[i]["image_id"] = image_id
+#                 res_pano[i]["file_name"] = file_name
+
+#             panoptic_evaluator.update(res_pano)
+
+#     # gather the stats from all processes
+#     metric_logger.synchronize_between_processes()
+#     print("Averaged stats:", metric_logger)
+#     if coco_evaluator is not None:
+#         coco_evaluator.synchronize_between_processes()
+
+#     # accumulate predictions from all images
+#     if coco_evaluator is not None:
+#         coco_evaluator.accumulate()
+#         coco_evaluator.summarize()
+
+#     stats = {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+#     if coco_evaluator is not None:
+#         if 'bbox' in postprocessors.keys():
+#             stats['coco_eval_bbox'] = coco_evaluator.coco_eval['bbox'].stats.tolist()
+#         if 'segm' in postprocessors.keys():
+#             stats['coco_eval_masks'] = coco_evaluator.coco_eval['segm'].stats.tolist()
+
+#     return stats, coco_evaluator
+
+import os
+import csv
+import torch
+import matplotlib.pyplot as plt
+import numpy as np
+from datetime import datetime
+
 @torch.no_grad()
 def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, output_dir):
     model.eval()
@@ -166,7 +255,6 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, out
 
     iou_types = tuple(k for k in ('segm', 'bbox') if k in postprocessors.keys())
     coco_evaluator = CocoEvaluator(base_ds, iou_types)
-    # coco_evaluator.coco_eval[iou_types[0]].params.iouThrs = [0, 0.1, 0.5, 0.75]
 
     panoptic_evaluator = None
     if 'panoptic' in postprocessors.keys():
@@ -176,6 +264,9 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, out
             output_dir=os.path.join(output_dir, "panoptic_eval"),
         )
 
+    loss_list, class_error_list = [], []
+    coco_ap_metrics = []  # 用于存储 COCO 评估指标
+
     for samples, targets in metric_logger.log_every(data_loader, 10, header):
         samples = samples.to(device)
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
@@ -184,52 +275,119 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, out
         loss_dict = criterion(outputs, targets)
         weight_dict = criterion.weight_dict
 
-        # reduce losses over all GPUs for logging purposes
+        # reduce losses over all GPUs
         loss_dict_reduced = utils.reduce_dict(loss_dict)
-        loss_dict_reduced_scaled = {k: v * weight_dict[k]
-                                    for k, v in loss_dict_reduced.items() if k in weight_dict}
-        loss_dict_reduced_unscaled = {f'{k}_unscaled': v
-                                      for k, v in loss_dict_reduced.items()}
-        metric_logger.update(loss=sum(loss_dict_reduced_scaled.values()),
-                             **loss_dict_reduced_scaled,
-                             **loss_dict_reduced_unscaled)
-        metric_logger.update(class_error=loss_dict_reduced['class_error'])
+        loss_dict_reduced_scaled = {k: v * weight_dict[k] for k, v in loss_dict_reduced.items() if k in weight_dict}
+        loss_dict_reduced_unscaled = {f'{k}_unscaled': v for k, v in loss_dict_reduced.items()}
+        
+        total_loss = sum(loss_dict_reduced_scaled.values()).item()
+        class_error = loss_dict_reduced['class_error'].item()
+        
+        metric_logger.update(loss=total_loss, **loss_dict_reduced_scaled, **loss_dict_reduced_unscaled)
+        metric_logger.update(class_error=class_error)
 
+        # 记录损失和误差
+        loss_list.append(total_loss)
+        class_error_list.append(class_error)
+
+        # 计算 COCO 评估结果
         orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)
         results = postprocessors['bbox'](outputs, orig_target_sizes)
-        if 'segm' in postprocessors.keys():
-            target_sizes = torch.stack([t["size"] for t in targets], dim=0)
-            results = postprocessors['segm'](results, outputs, orig_target_sizes, target_sizes)
         res = {target['image_id'].item(): output for target, output in zip(targets, results)}
+
         if coco_evaluator is not None:
             coco_evaluator.update(res)
 
         if panoptic_evaluator is not None:
-            res_pano = postprocessors["panoptic"](outputs, target_sizes, orig_target_sizes)
-            for i, target in enumerate(targets):
-                image_id = target["image_id"].item()
-                file_name = f"{image_id:012d}.png"
-                res_pano[i]["image_id"] = image_id
-                res_pano[i]["file_name"] = file_name
-
+            res_pano = postprocessors["panoptic"](outputs, orig_target_sizes, orig_target_sizes)
             panoptic_evaluator.update(res_pano)
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
-    print("Averaged stats:", metric_logger)
     if coco_evaluator is not None:
         coco_evaluator.synchronize_between_processes()
-
-    # accumulate predictions from all images
-    if coco_evaluator is not None:
         coco_evaluator.accumulate()
         coco_evaluator.summarize()
 
     stats = {k: meter.global_avg for k, meter in metric_logger.meters.items()}
-    if coco_evaluator is not None:
-        if 'bbox' in postprocessors.keys():
-            stats['coco_eval_bbox'] = coco_evaluator.coco_eval['bbox'].stats.tolist()
-        if 'segm' in postprocessors.keys():
-            stats['coco_eval_masks'] = coco_evaluator.coco_eval['segm'].stats.tolist()
+    
+    # 记录 COCO 评估所有 AP 指标
+    if coco_evaluator is not None and 'bbox' in postprocessors.keys():
+        coco_ap_stats = coco_evaluator.coco_eval['bbox'].stats.tolist()
+        stats.update({
+            "AP": coco_ap_stats[0],
+            "AP50": coco_ap_stats[1],
+            "AP75": coco_ap_stats[2],
+            "APS": coco_ap_stats[3],
+            "APM": coco_ap_stats[4],
+            "APL": coco_ap_stats[5]
+        })
+        coco_ap_metrics.append(coco_ap_stats)  # 存储所有 AP 指标
+
+    # 保存 CSV
+    csv_file = os.path.join(output_dir, "evaluation_results.csv")
+    save_results_to_csv(csv_file, loss_list, class_error_list, coco_ap_metrics)
+
+    # 绘制结果
+    plot_results(output_dir, loss_list, class_error_list, coco_ap_metrics)
 
     return stats, coco_evaluator
+
+
+def save_results_to_csv(csv_file, loss_list, class_error_list, coco_ap_metrics):
+    """ 保存测试结果到 CSV 文件 """
+    file_exists = os.path.exists(csv_file)
+
+    with open(csv_file, mode='a', newline='') as f:
+        writer = csv.writer(f)
+        if not file_exists:
+            writer.writerow(["Epoch", "Loss", "Class Error", "AP", "AP50", "AP75", "APS", "APM", "APL"])  # 表头
+        
+        for epoch in range(len(loss_list)):
+            writer.writerow([
+                epoch + 1, loss_list[epoch], class_error_list[epoch],
+                coco_ap_metrics[epoch][0], coco_ap_metrics[epoch][1], coco_ap_metrics[epoch][2], 
+                coco_ap_metrics[epoch][3], coco_ap_metrics[epoch][4], coco_ap_metrics[epoch][5]
+            ])
+
+
+def plot_results(output_dir, loss_list, class_error_list, coco_ap_metrics):
+    """ 绘制损失、误差率和 COCO 评估曲线 """
+    epochs = range(1, len(loss_list) + 1)
+
+    fig, ax1 = plt.subplots()
+
+    # 绘制损失曲线
+    ax1.set_xlabel("Epoch")
+    ax1.set_ylabel("Loss", color="tab:blue")
+    ax1.plot(epochs, loss_list, label="Loss", color="tab:blue")
+    ax1.tick_params(axis="y", labelcolor="tab:blue")
+
+    # 绘制误差率曲线
+    ax2 = ax1.twinx()
+    ax2.set_ylabel("Class Error", color="tab:red")
+    ax2.plot(epochs, class_error_list, label="Class Error", color="tab:red", linestyle="dashed")
+    ax2.tick_params(axis="y", labelcolor="tab:red")
+
+    fig.tight_layout()
+    plt.title("Loss & Class Error over Epochs")
+    plt.legend()
+    plt.savefig(os.path.join(output_dir, "loss_error_curve.png"))
+    plt.close()
+
+    # 绘制 COCO AP 指标
+    coco_ap_metrics = np.array(coco_ap_metrics)
+    plt.figure()
+    plt.plot(epochs, coco_ap_metrics[:, 0], label="AP", color="tab:green")
+    plt.plot(epochs, coco_ap_metrics[:, 1], label="AP50", color="tab:blue")
+    plt.plot(epochs, coco_ap_metrics[:, 2], label="AP75", color="tab:purple")
+    plt.plot(epochs, coco_ap_metrics[:, 3], label="APS (Small)", color="tab:orange")
+    plt.plot(epochs, coco_ap_metrics[:, 4], label="APM (Medium)", color="tab:brown")
+    plt.plot(epochs, coco_ap_metrics[:, 5], label="APL (Large)", color="tab:pink")
+
+    plt.xlabel("Epoch")
+    plt.ylabel("COCO AP")
+    plt.title("COCO AP Metrics over Epochs")
+    plt.legend()
+    plt.savefig(os.path.join(output_dir, "coco_ap_metrics_curve.png"))
+    plt.close()

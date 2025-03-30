@@ -43,7 +43,7 @@ def get_args_parser():
     parser.add_argument('--two_stage', default=False, action='store_true')
 
     # Model parameters
-    parser.add_argument('--frozen_weights', type=str, default=r"outputs\phase_0\checkpoint_base_3.pth",
+    parser.add_argument('--frozen_weights', type=str, default=r"outputs\phase_0\checkpoint_base.pth",
                         help="Path to the pretrained model. If set, only the mask head will be trained")
     # parser.add_argument('--frozen_weights', type=str, default=r"weights\phase_0.pth",
     #                     help="Path to the pretrained model. If set, only the mask head will be trained")
@@ -109,7 +109,7 @@ def get_args_parser():
     # dataset parameters
     parser.add_argument('--dataset_file', default='VOC')
     parser.add_argument('--class_nums', default=20, type=int)
-    parser.add_argument('--coco_path', default=r'E:\Project\Dataset\VOC2012\VOC2012_COCO_sub', type=str)
+    parser.add_argument('--coco_path', default=r'E:\Project\Dataset\VOC2012\VOC2012_COCO', type=str)
     parser.add_argument('--coco_panoptic_path', type=str)
     parser.add_argument('--remove_difficult', action='store_true')
 

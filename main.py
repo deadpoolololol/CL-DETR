@@ -355,9 +355,11 @@ def main(args):
                 lr_scheduler.step(lr_scheduler.last_epoch)
                 args.start_epoch = checkpoint['epoch'] + 1
                 print('pretrained weights given...')
-                print("Testing results for given weights")
-                test_stats, coco_evaluator = evaluate_base(
-                    model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir)
+
+                # print("Testing results for given weights")
+                # test_stats, coco_evaluator = evaluate_base(
+                #     model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir)
+                
                 print('start training base...')
                 for epoch in range(args.start_epoch, args.epochs):
                     train_stats = train_one_epoch(

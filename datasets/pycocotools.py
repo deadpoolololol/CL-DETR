@@ -51,7 +51,7 @@ class COCO:
         imgToAnns,catToImgs = defaultdict(list),defaultdict(list)
 
         # 基础类数量 总数-阶段数和每阶段类别数
-        base_cls_num = len(cls_order)-cls_per_phase*num_of_phases
+        base_cls_num = len(cls_order)-cls_per_phase*(num_of_phases-1)
 
         if balanced_ft: # 增量阶段训练 dataset_train_balanced
             total_phase_num = phase_idx + 1
@@ -330,7 +330,7 @@ class COCO:
                             catToImgs[ann['category_id']].append(ann['image_id'])            
 
             print('index created!')
-        if not incremental_val:
+        if phase_idx == 0:
             print('base class order:',selected_cls_this_phase)
         else:
             print('incremental class order:',selected_cls_this_phase)

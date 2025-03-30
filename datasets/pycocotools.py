@@ -330,8 +330,10 @@ class COCO:
                             catToImgs[ann['category_id']].append(ann['image_id'])            
 
             print('index created!')
-        
-        print('base class order:',selected_cls_this_phase)
+        if not incremental_val:
+            print('base class order:',selected_cls_this_phase)
+        else:
+            print('incremental class order:',selected_cls_this_phase)
 
         # create class members
         self.anns = anns

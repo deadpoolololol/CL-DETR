@@ -22,7 +22,7 @@ def get_args_parser():
     parser = argparse.ArgumentParser('Deformable DETR Detector', add_help=False)
     parser.add_argument('--lr', default=2e-4, type=float)
     parser.add_argument('--lr_backbone_names', default=["backbone.0"], type=str, nargs='+')
-    parser.add_argument('--lr_backbone', default=2e-4, type=float)
+    parser.add_argument('--lr_backbone', default=2e-5, type=float)
     parser.add_argument('--lr_linear_proj_names', default=['reference_points', 'sampling_offsets'], type=str, nargs='+')
     parser.add_argument('--lr_linear_proj_mult', default=0.1, type=float)
     parser.add_argument('--batch_size', default=2, type=int)
@@ -43,10 +43,12 @@ def get_args_parser():
     parser.add_argument('--two_stage', default=False, action='store_true')
 
     # Model parameters
-    parser.add_argument('--frozen_weights', type=str, default=r"outputs\phase_0\checkpoint_base.pth",
-                        help="Path to the pretrained model. If set, only the mask head will be trained")
-    # parser.add_argument('--frozen_weights', type=str, default=r"weights\phase_0.pth",
+    # parser.add_argument('--frozen_weights', type=str, default=r"outputs\phase_0\checkpoint_base_2.pth",
     #                     help="Path to the pretrained model. If set, only the mask head will be trained")
+    parser.add_argument('--frozen_weights', type=str, default=None,
+                        help="Path to the pretrained model. If set, only the mask head will be trained")
+    parser.add_argument('--pretrain_weight', type=str, default=r"weights\phase_0.pth",
+                        help="Path to the pretrained model. If set, only the mask head will be trained")
 
     # * Backbone
     parser.add_argument('--backbone', default='resnet50', type=str,
@@ -169,7 +171,7 @@ def main(args):
 
     # if args.frozen_weights is not None:
     #     assert args.masks, "Frozen training is meant for segmentation only"
-    print(args)
+    # print(args)
 
     device = torch.device(args.device)
 
@@ -330,9 +332,9 @@ def main(args):
             # ckpt_path = './phase_0.pth'          
             # checkpoint = torch.load(ckpt_path, map_location='cpu')
 
-            if args.frozen_weights is not None:
+            if args.pretrain_weight is not None:
                 # 加载预训练权重并测试
-                checkpoint = torch.load(args.frozen_weights, map_location='cpu')
+                checkpoint = torch.load(args.pretrain_weight, map_location='cpu')
                 missing_keys, unexpected_keys = model_without_ddp.load_state_dict(checkpoint['model'], strict=False)
                 unexpected_keys = [k for k in unexpected_keys if not (k.endswith('total_params') or k.endswith('total_ops'))]
                 if len(missing_keys) > 0:
@@ -340,12 +342,13 @@ def main(args):
                 if len(unexpected_keys) > 0:
                     print('Unexpected Keys: {}'.format(unexpected_keys))
 
-                p_groups = copy.deepcopy(optimizer.param_groups)
-                optimizer.load_state_dict(checkpoint['optimizer'])
-                for pg, pg_old in zip(optimizer.param_groups, p_groups):
-                    pg['lr'] = pg_old['lr']
-                    pg['initial_lr'] = pg_old['initial_lr']
+                # p_groups = copy.deepcopy(optimizer.param_groups)
+                # optimizer.load_state_dict(checkpoint['optimizer'])
+                # for pg, pg_old in zip(optimizer.param_groups, p_groups):
+                #     pg['lr'] = pg_old['lr']
+                #     pg['initial_lr'] = pg_old['initial_lr']
                 # print(optimizer.param_groups) # 打印权重
+                    
                 lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
                 args.override_resumed_lr_drop = True
                 if args.override_resumed_lr_drop:
@@ -356,6 +359,7 @@ def main(args):
                 args.start_epoch = checkpoint['epoch'] + 1
                 print('pretrained weights given...')
 
+                # # 先测试再训练
                 # print("Testing results for given weights")
                 # test_stats, coco_evaluator = evaluate_base(
                 #     model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir)

@@ -42,7 +42,9 @@ class DeformableDETR(nn.Module):
         self.num_queries = num_queries
         self.transformer = transformer
         hidden_dim = transformer.d_model
-        self.class_embed = nn.Linear(hidden_dim, num_classes)
+        coco_classes = 91  # 预训练coco类别
+        self.class_embed = nn.Linear(hidden_dim, coco_classes)
+        
         self.bbox_embed = MLP(hidden_dim, hidden_dim, 4, 3)
         self.num_feature_levels = num_feature_levels
         if not two_stage:
@@ -76,7 +78,7 @@ class DeformableDETR(nn.Module):
 
         prior_prob = 0.01
         bias_value = -math.log((1 - prior_prob) / prior_prob)
-        self.class_embed.bias.data = torch.ones(num_classes) * bias_value
+        self.class_embed.bias.data = torch.ones(coco_classes) * bias_value
         nn.init.constant_(self.bbox_embed.layers[-1].weight.data, 0)
         nn.init.constant_(self.bbox_embed.layers[-1].bias.data, 0)
         for proj in self.input_proj:
@@ -101,6 +103,13 @@ class DeformableDETR(nn.Module):
             self.transformer.decoder.class_embed = self.class_embed
             for box_embed in self.bbox_embed:
                 nn.init.constant_(box_embed.layers[-1].bias.data[2:], 0.0)
+
+        # 如果 num_classes != coco_classes，则创建额外的映射层
+        if num_classes != coco_classes:
+            self.custom_class_embed = nn.Linear(coco_classes, num_classes)
+            # 初始化新层，一般用 Xavier 初始化
+            nn.init.xavier_uniform_(self.custom_class_embed.weight)
+            nn.init.constant_(self.custom_class_embed.bias, 0)
 
     def forward(self, samples: NestedTensor):
         """ The forward expects a NestedTensor, which consists of:
@@ -168,7 +177,13 @@ class DeformableDETR(nn.Module):
         outputs_class = torch.stack(outputs_classes)
         outputs_coord = torch.stack(outputs_coords)
 
-        out = {'pred_logits': outputs_class[-1], 'pred_boxes': outputs_coord[-1]}
+        # 如果设置了 custom_class_embed
+        final_logits = outputs_class[-1]
+        if self.custom_class_embed is not None:
+             # 应用额外全连接层
+            final_logits = self.custom_class_embed(final_logits)
+
+        out = {'pred_logits': final_logits, 'pred_boxes': outputs_coord[-1]}
         if self.aux_loss:
             out['aux_outputs'] = self._set_aux_loss(outputs_class, outputs_coord)
 

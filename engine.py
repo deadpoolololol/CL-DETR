@@ -27,7 +27,7 @@ def train_one_epoch_incremental(model: torch.nn.Module, old_model: torch.nn.Modu
     metric_logger.add_meter('class_error', utils.SmoothedValue(window_size=1, fmt='{value:.2f}'))
     metric_logger.add_meter('grad_norm', utils.SmoothedValue(window_size=1, fmt='{value:.2f}'))
     header = 'Epoch: [{}]'.format(epoch)
-    print_freq = 10
+    print_freq = 50
 
     prefetcher = data_prefetcher(data_loader, device, prefetch=True)
     samples, targets = prefetcher.next()
@@ -111,7 +111,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     metric_logger.add_meter('class_error', utils.SmoothedValue(window_size=1, fmt='{value:.2f}'))
     metric_logger.add_meter('grad_norm', utils.SmoothedValue(window_size=1, fmt='{value:.2f}'))
     header = 'Epoch: [{}]'.format(epoch)
-    print_freq = 10
+    print_freq = 50
 
     prefetcher = data_prefetcher(data_loader, device, prefetch=True)
     samples, targets = prefetcher.next()
@@ -178,8 +178,8 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, out
             data_loader.dataset.ann_folder,
             output_dir=os.path.join(output_dir, "panoptic_eval"),
         )
-
-    for samples, targets in metric_logger.log_every(data_loader, 10, header):
+    print_freq = 50
+    for samples, targets in metric_logger.log_every(data_loader, print_freq, header):
         samples = samples.to(device)
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
@@ -261,8 +261,8 @@ def evaluate_base(model, criterion, postprocessors, data_loader, base_ds, device
 
     loss_list, class_error_list = [], []
     coco_ap_metrics = []  # 用于存储 COCO 评估指标
-
-    for samples, targets in metric_logger.log_every(data_loader, 10, header):
+    print_freq = 50
+    for samples, targets in metric_logger.log_every(data_loader, print_freq, header):
         samples = samples.to(device)
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
@@ -321,11 +321,11 @@ def evaluate_base(model, criterion, postprocessors, data_loader, base_ds, device
 
     # 保存 CSV
     csv_file = os.path.join(output_dir, "evaluation_results_base.csv")
-    existing_epochs = get_epoch_num(csv_file)
-    save_results_to_csv(csv_file, loss_list, class_error_list, coco_ap_metrics,existing_epochs)
+    epochs, losses, class_errors, aps = read_csv(csv_file)
+    save_results_to_csv(csv_file, loss_list, class_error_list, coco_ap_metrics,epochs)
 
     # 绘制结果
-    plot_results(csv_file,output_dir, loss_list, class_error_list, coco_ap_metrics,existing_epochs)
+    plot_results(csv_file,output_dir, loss_list, class_error_list, coco_ap_metrics,epochs,losses, class_errors, aps)
 
     return stats, coco_evaluator
 
@@ -380,15 +380,15 @@ def save_results_to_csv(csv_file, loss_list, class_error_list, coco_ap_metrics,e
         ])
 
 
-def plot_results(csv_file,output_dir, loss_list, class_error_list, coco_ap_metrics,existing_epochs):
+def plot_results(csv_file,output_dir, loss_list, class_error_list, coco_ap_metrics,existing_epochs,losses, class_errors, aps):
     """ 绘制损失、误差率和 COCO 评估曲线 """
     epoch_num = len(existing_epochs)
 
     loss_avg = sum(loss_list) / len(loss_list)
     class_error_avg = sum(class_error_list) / len(class_error_list)
 
-    epoches, losses, class_errors, aps = read_csv(csv_file)
-    np.append(epoches,epoch_num)
+    
+    np.append(existing_epochs,epoch_num)
     np.append(losses,loss_avg)
     np.append(class_errors,class_error_avg)
 
@@ -400,13 +400,13 @@ def plot_results(csv_file,output_dir, loss_list, class_error_list, coco_ap_metri
     # 绘制损失曲线
     ax1.set_xlabel("Epoch")
     ax1.set_ylabel("Loss", color="tab:blue")
-    ax1.plot(epoches, losses, label="Loss", color="tab:blue")
+    ax1.plot(existing_epochs, losses, label="Loss", color="tab:blue")
     ax1.tick_params(axis="y", labelcolor="tab:blue")
 
     # 绘制误差率曲线
     ax2 = ax1.twinx()
     ax2.set_ylabel("Class Error", color="tab:red")
-    ax2.plot(epoches, class_errors, label="Class Error", color="tab:red", linestyle="dashed")
+    ax2.plot(existing_epochs, class_errors, label="Class Error", color="tab:red", linestyle="dashed")
     ax2.tick_params(axis="y", labelcolor="tab:red")
 
     fig.tight_layout()
@@ -418,12 +418,12 @@ def plot_results(csv_file,output_dir, loss_list, class_error_list, coco_ap_metri
     # 绘制 COCO AP 指标
     coco_ap_metrics = np.array(coco_ap_metrics)
     plt.figure()
-    plt.plot(epoches, aps[0], label="AP", color="tab:green")
-    plt.plot(epoches, aps[1], label="AP50", color="tab:blue")
-    plt.plot(epoches, aps[2], label="AP75", color="tab:purple")
-    plt.plot(epoches, aps[3], label="APS (Small)", color="tab:orange")
-    plt.plot(epoches, aps[4], label="APM (Medium)", color="tab:brown")
-    plt.plot(epoches, aps[5], label="APL (Large)", color="tab:pink")
+    plt.plot(existing_epochs, aps[0], label="AP", color="tab:green")
+    plt.plot(existing_epochs, aps[1], label="AP50", color="tab:blue")
+    plt.plot(existing_epochs, aps[2], label="AP75", color="tab:purple")
+    plt.plot(existing_epochs, aps[3], label="APS (Small)", color="tab:orange")
+    plt.plot(existing_epochs, aps[4], label="APM (Medium)", color="tab:brown")
+    plt.plot(existing_epochs, aps[5], label="APL (Large)", color="tab:pink")
 
     plt.xlabel("Epoch")
     plt.ylabel("COCO AP")

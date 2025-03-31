@@ -48,7 +48,9 @@ def get_args_parser():
     parser.add_argument('--frozen_weights', type=str, default=None,
                         help="Path to the pretrained model. If set, only the mask head will be trained")
     parser.add_argument('--pretrain_weight', type=str, default=r"weights\phase_0.pth",
-                        help="Path to the pretrained model. If set, only the mask head will be trained")
+                        help="Path to the pretrained model.")
+    parser.add_argument('--is_checkpoint', type=bool, default=False,
+                        help="是否加载断点.")
 
     # * Backbone
     parser.add_argument('--backbone', default='resnet50', type=str,
@@ -111,6 +113,7 @@ def get_args_parser():
     # dataset parameters
     parser.add_argument('--dataset_file', default='VOC')
     parser.add_argument('--class_nums', default=20, type=int)
+    parser.add_argument('--coco_class_nums', default=91, type=int)
     parser.add_argument('--coco_path', default=r'E:\Project\Dataset\VOC2012\VOC2012_COCO', type=str)
     parser.add_argument('--coco_panoptic_path', type=str)
     parser.add_argument('--remove_difficult', action='store_true')
@@ -356,8 +359,14 @@ def main(args):
                     lr_scheduler.step_size = args.lr_drop
                     lr_scheduler.base_lrs = list(map(lambda group: group['initial_lr'], optimizer.param_groups))
                 lr_scheduler.step(lr_scheduler.last_epoch)
-                args.start_epoch = checkpoint['epoch'] + 1
-                print('pretrained weights given...')
+
+                # 是否断点重载
+                if args.is_checkpoint:
+                    args.start_epoch = checkpoint['epoch'] + 1
+                    print('Starting training from epoch {args.start_epoch}'.format(args.start_epoch))
+
+                else:
+                    print('pretrained weights given...')
 
                 # # 先测试再训练
                 # print("Testing results for given weights")

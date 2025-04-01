@@ -49,7 +49,7 @@ def get_args_parser():
                         help="Path to the pretrained model. If set, only the mask head will be trained")
     parser.add_argument('--pretrain_weight', type=str, default=r"weights\phase_0.pth",
                         help="Path to the pretrained model.")
-    parser.add_argument('--is_checkpoint', type=bool, default=False,
+    parser.add_argument('--is_checkpoint', type=bool, default=True,
                         help="是否加载断点.")
 
     # * Backbone
@@ -368,10 +368,10 @@ def main(args):
                 else:
                     print('pretrained weights given...')
 
-                # # 先测试再训练
-                # print("Testing results for given weights")
-                # test_stats, coco_evaluator = evaluate_base(
-                #     model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir)
+                # 先测试再训练
+                print("Testing results for given weights")
+                test_stats, coco_evaluator = evaluate_base(
+                    model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir)
                 
                 print('start training base...')
                 for epoch in range(args.start_epoch, args.epochs):

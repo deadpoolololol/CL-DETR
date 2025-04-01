@@ -47,7 +47,7 @@ def get_args_parser():
     #                     help="Path to the pretrained model. If set, only the mask head will be trained")
     parser.add_argument('--frozen_weights', type=str, default=None,
                         help="Path to the pretrained model. If set, only the mask head will be trained")
-    parser.add_argument('--pretrain_weight', type=str, default=r"weights\phase_0.pth",
+    parser.add_argument('--pretrain_weight', type=str, default=r"outputs\phase_0\checkpoint_base_2.pth",
                         help="Path to the pretrained model.")
     parser.add_argument('--is_checkpoint', type=bool, default=True,
                         help="是否加载断点.")
@@ -363,15 +363,17 @@ def main(args):
                 # 是否断点重载
                 if args.is_checkpoint:
                     args.start_epoch = checkpoint['epoch'] + 1
-                    print('Starting training from epoch {args.start_epoch}'.format(args.start_epoch))
+                    print(f'Starting training from epoch {args.start_epoch}'.format(args.start_epoch))
+
+                    # 先测试再训练
+                    print("Testing results for given weights")
+                    test_stats, coco_evaluator = evaluate_base(
+                        model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir,checkpoint['epoch'])
 
                 else:
                     print('pretrained weights given...')
 
-                # 先测试再训练
-                print("Testing results for given weights")
-                test_stats, coco_evaluator = evaluate_base(
-                    model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir)
+                
                 
                 print('start training base...')
                 for epoch in range(args.start_epoch, args.epochs):
@@ -394,7 +396,7 @@ def main(args):
 
                     print("Testing results for base classes.")
                     test_stats, coco_evaluator = evaluate_base(
-                    model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir)
+                    model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir,epoch)
             # else:
             #     # 遍历模型层并初始化权重
             #     def init_weights(m):

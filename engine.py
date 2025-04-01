@@ -240,7 +240,7 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, out
 
 
 @torch.no_grad()
-def evaluate_base(model, criterion, postprocessors, data_loader, base_ds, device, output_dir):
+def evaluate_base(model, criterion, postprocessors, data_loader, base_ds, device, output_dir,epoch_num):
     model.eval()
     criterion.eval()
 
@@ -322,10 +322,10 @@ def evaluate_base(model, criterion, postprocessors, data_loader, base_ds, device
     # 保存 CSV
     csv_file = os.path.join(output_dir, "evaluation_results_base.csv")
     epochs, losses, class_errors, aps = read_csv(csv_file)
-    save_results_to_csv(csv_file, loss_list, class_error_list, coco_ap_metrics,epochs)
+    save_results_to_csv(csv_file, loss_list, class_error_list, coco_ap_metrics,epochs,epoch_num)
 
     # 绘制结果
-    plot_results(csv_file,output_dir, loss_list, class_error_list, coco_ap_metrics,epochs,losses, class_errors, aps)
+    plot_results(csv_file,output_dir, loss_list, class_error_list, coco_ap_metrics,epochs,losses, class_errors, aps,epoch_num)
 
     return stats, coco_evaluator
 
@@ -362,74 +362,74 @@ def read_csv(csv_file):
 
     return np.array(epochs), np.array(losses), np.array(class_errors), np.array(coco_ap_metrics)
 
-def save_results_to_csv(csv_file, loss_list, class_error_list, coco_ap_metrics,existing_epochs):
+def save_results_to_csv(csv_file, loss_list, class_error_list, coco_ap_metrics,existing_epochs,epoch_num):
     """ 读取已保存数据，避免重复写入 """
     loss_avg = sum(loss_list) / len(loss_list)
     class_error_avg = sum(class_error_list) / len(class_error_list)
 
     with open(csv_file, mode='a', newline='') as f:
         writer = csv.writer(f)
-        if not existing_epochs:
+        if len(existing_epochs) == 0 :
             writer.writerow(["Epoch", "Loss", "Class Error", "AP", "AP50", "AP75", "APS", "APM", "APL"])  # 表头
         
-        epoch_num = len(existing_epochs)
-        writer.writerow([
-            epoch_num + 1, loss_avg, class_error_avg,
-            coco_ap_metrics[0][0], coco_ap_metrics[0][1], coco_ap_metrics[0][2], 
-            coco_ap_metrics[0][3], coco_ap_metrics[0][4], coco_ap_metrics[0][5]
-        ])
+        if epoch_num  not in existing_epochs:
+            writer.writerow([
+                epoch_num, loss_avg, class_error_avg,
+                coco_ap_metrics[0][0], coco_ap_metrics[0][1], coco_ap_metrics[0][2], 
+                coco_ap_metrics[0][3], coco_ap_metrics[0][4], coco_ap_metrics[0][5]
+            ])
 
 
-def plot_results(csv_file,output_dir, loss_list, class_error_list, coco_ap_metrics,existing_epochs,losses, class_errors, aps):
+
+def plot_results(csv_file,output_dir, loss_list, class_error_list, coco_ap_metrics,existing_epochs,losses, class_errors, aps,epoch_num):
     """ 绘制损失、误差率和 COCO 评估曲线 """
-    epoch_num = len(existing_epochs)
 
     loss_avg = sum(loss_list) / len(loss_list)
     class_error_avg = sum(class_error_list) / len(class_error_list)
 
-    
-    np.append(existing_epochs,epoch_num)
-    np.append(losses,loss_avg)
-    np.append(class_errors,class_error_avg)
+    if epoch_num not in existing_epochs:
+        np.append(existing_epochs,epoch_num)
+        np.append(losses,loss_avg)
+        np.append(class_errors,class_error_avg)
 
-    for i in range(6):
-        np.append(aps[i],coco_ap_metrics[0][i])
+        for i in range(6):
+            np.append(aps[i],coco_ap_metrics[0][i])
 
-    fig, ax1 = plt.subplots()
+        fig, ax1 = plt.subplots()
 
-    # 绘制损失曲线
-    ax1.set_xlabel("Epoch")
-    ax1.set_ylabel("Loss", color="tab:blue")
-    ax1.plot(existing_epochs, losses, label="Loss", color="tab:blue")
-    ax1.tick_params(axis="y", labelcolor="tab:blue")
+        # 绘制损失曲线
+        ax1.set_xlabel("Epoch")
+        ax1.set_ylabel("Loss", color="tab:blue")
+        ax1.plot(existing_epochs, losses, label="Loss", color="tab:blue")
+        ax1.tick_params(axis="y", labelcolor="tab:blue")
 
-    # 绘制误差率曲线
-    ax2 = ax1.twinx()
-    ax2.set_ylabel("Class Error", color="tab:red")
-    ax2.plot(existing_epochs, class_errors, label="Class Error", color="tab:red", linestyle="dashed")
-    ax2.tick_params(axis="y", labelcolor="tab:red")
+        # 绘制误差率曲线
+        ax2 = ax1.twinx()
+        ax2.set_ylabel("Class Error", color="tab:red")
+        ax2.plot(existing_epochs, class_errors, label="Class Error", color="tab:red", linestyle="dashed")
+        ax2.tick_params(axis="y", labelcolor="tab:red")
 
-    fig.tight_layout()
-    plt.title("Loss & Class Error over Epochs")
-    plt.legend()
-    plt.savefig(os.path.join(output_dir, "loss_error_curve_base.png"))
-    plt.close()
+        fig.tight_layout()
+        plt.title("Loss & Class Error over Epochs")
+        plt.legend()
+        plt.savefig(os.path.join(output_dir, "loss_error_curve_base.png"))
+        plt.close()
 
-    # 绘制 COCO AP 指标
-    coco_ap_metrics = np.array(coco_ap_metrics)
-    plt.figure()
-    plt.plot(existing_epochs, aps[0], label="AP", color="tab:green")
-    plt.plot(existing_epochs, aps[1], label="AP50", color="tab:blue")
-    plt.plot(existing_epochs, aps[2], label="AP75", color="tab:purple")
-    plt.plot(existing_epochs, aps[3], label="APS (Small)", color="tab:orange")
-    plt.plot(existing_epochs, aps[4], label="APM (Medium)", color="tab:brown")
-    plt.plot(existing_epochs, aps[5], label="APL (Large)", color="tab:pink")
+        # 绘制 COCO AP 指标
+        coco_ap_metrics = np.array(coco_ap_metrics)
+        plt.figure()
+        plt.plot(existing_epochs, aps[0], label="AP", color="tab:green")
+        plt.plot(existing_epochs, aps[1], label="AP50", color="tab:blue")
+        plt.plot(existing_epochs, aps[2], label="AP75", color="tab:purple")
+        plt.plot(existing_epochs, aps[3], label="APS (Small)", color="tab:orange")
+        plt.plot(existing_epochs, aps[4], label="APM (Medium)", color="tab:brown")
+        plt.plot(existing_epochs, aps[5], label="APL (Large)", color="tab:pink")
 
-    plt.xlabel("Epoch")
-    plt.ylabel("COCO AP")
-    plt.title("COCO AP Metrics over Epochs")
-    plt.legend()
-    plt.savefig(os.path.join(output_dir, "coco_ap_metrics_curve_base.png"))
-    plt.close()
+        plt.xlabel("Epoch")
+        plt.ylabel("COCO AP")
+        plt.title("COCO AP Metrics over Epochs")
+        plt.legend()
+        plt.savefig(os.path.join(output_dir, "coco_ap_metrics_curve_base.png"))
+        plt.close()
 
 

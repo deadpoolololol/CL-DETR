@@ -47,9 +47,11 @@ def get_args_parser():
     #                     help="Path to the pretrained model. If set, only the mask head will be trained")
     parser.add_argument('--frozen_weights', type=str, default=None,
                         help="Path to the pretrained model. If set, only the mask head will be trained")
-    parser.add_argument('--pretrain_weight', type=str, default=r"outputs\phase_0\checkpoint_base_2.pth",
+    parser.add_argument('--pretrain_weight', type=str, default=r"weights\phase_0.pth",
                         help="Path to the pretrained model.")
-    parser.add_argument('--is_checkpoint', type=bool, default=True,
+    # parser.add_argument('--pretrain_weight', type=str, default=None,
+    #                     help="Path to the pretrained model.")
+    parser.add_argument('--is_checkpoint', type=bool, default=False,
                         help="是否加载断点.")
 
     # * Backbone
@@ -111,10 +113,14 @@ def get_args_parser():
     parser.add_argument('--ref_loss_overall_coef', default=1, type=float)
 
     # dataset parameters
+    # parser.add_argument('--dataset_file', default='COCO')
     parser.add_argument('--dataset_file', default='VOC')
+    # parser.add_argument('--class_nums', default=91, type=int)
     parser.add_argument('--class_nums', default=20, type=int)
     parser.add_argument('--coco_class_nums', default=91, type=int)
     parser.add_argument('--coco_path', default=r'E:\Project\Dataset\VOC2012\VOC2012_COCO', type=str)
+    # parser.add_argument('--coco_path', default=r'D:\My_passport\Project\Dataset\coco', type=str)
+
     parser.add_argument('--coco_panoptic_path', type=str)
     parser.add_argument('--remove_difficult', action='store_true')
 
@@ -143,6 +149,66 @@ def get_args_parser():
     parser.add_argument('--balanced_ft', default=True, action='store_true')
 
     return parser
+
+def get_optimizer_lr_scheduler(args,model,phase_idx=0):
+
+    def match_name_keywords(n, name_keywords):
+            out = False
+            for b in name_keywords:
+                if b in n:
+                    out = True
+                    break
+            return out
+    
+    # 如果自定义数据集,并且只有base阶段
+    if args.class_nums != 91 and phase_idx==0: 
+        # 冻结所有层
+        for name, param in model.parameters():
+            if "custom_class_embed" not in name:
+                param.requires_grad = False
+
+        param_dicts = [
+            {
+                "params":
+                    [p for n, p in model.named_parameters()
+                    if "custom_class_embed" in n and p.requires_grad],
+                "lr": args.lr,
+            }
+        ]
+
+    else :
+        param_dicts = [
+            {
+                "params":
+                    [p for n, p in model.named_parameters()
+                    if not model(n, args.lr_backbone_names) and not match_name_keywords(n, args.lr_linear_proj_names) and p.requires_grad],
+                "lr": args.lr,
+            },
+            {
+                "params": [p for n, p in model.named_parameters() if match_name_keywords(n, args.lr_backbone_names) and p.requires_grad],
+                "lr": args.lr_backbone,
+            },
+            {
+                "params": [p for n, p in model.named_parameters() if match_name_keywords(n, args.lr_linear_proj_names) and p.requires_grad],
+                "lr": args.lr * args.lr_linear_proj_mult,
+            }
+        ]
+        print('setting the optimizer...')
+
+        if args.sgd:
+            optimizer = torch.optim.SGD(param_dicts, lr=args.lr, momentum=0.9,
+                                        weight_decay=args.weight_decay)
+        else:
+            optimizer = torch.optim.AdamW(param_dicts, lr=args.lr,
+                                        weight_decay=args.weight_decay)
+        if phase_idx==0:
+            lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_drop)
+        else:
+            lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_drop_balanced)
+
+    return optimizer, lr_scheduler
+
+    
 
 
 def main(args):
@@ -273,41 +339,50 @@ def main(args):
         # # 打印模型层
         # for n, p in model_without_ddp.named_parameters():
         #     print(n)
+        # return
 
-        param_dicts = [
-            {
-                "params":
-                    [p for n, p in model_without_ddp.named_parameters()
-                    if not match_name_keywords(n, args.lr_backbone_names) and not match_name_keywords(n, args.lr_linear_proj_names) and p.requires_grad],
-                "lr": args.lr,
-            },
-            {
-                "params": [p for n, p in model_without_ddp.named_parameters() if match_name_keywords(n, args.lr_backbone_names) and p.requires_grad],
-                "lr": args.lr_backbone,
-            },
-            {
-                "params": [p for n, p in model_without_ddp.named_parameters() if match_name_keywords(n, args.lr_linear_proj_names) and p.requires_grad],
-                "lr": args.lr * args.lr_linear_proj_mult,
-            }
-        ]
+        # param_dicts = [
+        #     {
+        #         "params":
+        #             [p for n, p in model_without_ddp.named_parameters()
+        #             if not match_name_keywords(n, args.lr_backbone_names) and not match_name_keywords(n, args.lr_linear_proj_names) and p.requires_grad],
+        #         "lr": args.lr,
+        #     },
+        #     {
+        #         "params": [p for n, p in model_without_ddp.named_parameters() if match_name_keywords(n, args.lr_backbone_names) and p.requires_grad],
+        #         "lr": args.lr_backbone,
+        #     },
+        #     {
+        #         "params": [p for n, p in model_without_ddp.named_parameters() if match_name_keywords(n, args.lr_linear_proj_names) and p.requires_grad],
+        #         "lr": args.lr * args.lr_linear_proj_mult,
+        #     }
+        # ]
 
-        print('setting the optimizer...')
-        if args.sgd:
-            optimizer = torch.optim.SGD(param_dicts, lr=args.lr, momentum=0.9,
-                                        weight_decay=args.weight_decay)
-        else:
-            optimizer = torch.optim.AdamW(param_dicts, lr=args.lr,
-                                        weight_decay=args.weight_decay)
-        lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_drop)
+        # print('setting the optimizer...')
 
+        # if args.sgd:
+        #     optimizer = torch.optim.SGD(param_dicts, lr=args.lr, momentum=0.9,
+        #                                 weight_decay=args.weight_decay)
+        # else:
+        #     optimizer = torch.optim.AdamW(param_dicts, lr=args.lr,
+        #                                 weight_decay=args.weight_decay)
+        # lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_drop)
+
+        # if phase_idx >= 1:
+        #     if args.sgd:
+        #         optimizer_balanced = torch.optim.SGD(param_dicts, lr=args.lr, momentum=0.9,
+        #                                     weight_decay=args.weight_decay)
+        #     else:
+        #         optimizer_balanced = torch.optim.AdamW(param_dicts, lr=args.lr,
+        #                                     weight_decay=args.weight_decay)
+        #     lr_scheduler_balanced = torch.optim.lr_scheduler.StepLR(optimizer_balanced, args.lr_drop_balanced)
+        
+        optimizer,lr_scheduler = get_optimizer_lr_scheduler(args, model_without_ddp)
+        
         if phase_idx >= 1:
-            if args.sgd:
-                optimizer_balanced = torch.optim.SGD(param_dicts, lr=args.lr, momentum=0.9,
-                                            weight_decay=args.weight_decay)
-            else:
-                optimizer_balanced = torch.optim.AdamW(param_dicts, lr=args.lr,
-                                            weight_decay=args.weight_decay)
-            lr_scheduler_balanced = torch.optim.lr_scheduler.StepLR(optimizer_balanced, args.lr_drop_balanced)
+            optimizer_balanced,lr_scheduler_balanced = get_optimizer_lr_scheduler(args, model_without_ddp,phase_idx)
+
+        
 
         print('pytorch model distributed...')
         if args.distributed:
@@ -336,6 +411,7 @@ def main(args):
             # checkpoint = torch.load(ckpt_path, map_location='cpu')
 
             if args.pretrain_weight is not None:
+                print('pretrained weights given...')
                 # 加载预训练权重并测试
                 checkpoint = torch.load(args.pretrain_weight, map_location='cpu')
                 missing_keys, unexpected_keys = model_without_ddp.load_state_dict(checkpoint['model'], strict=False)
@@ -370,33 +446,37 @@ def main(args):
                     test_stats, coco_evaluator = evaluate_base(
                         model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir,checkpoint['epoch'])
 
-                else:
-                    print('pretrained weights given...')
-
-                
-                
-                print('start training base...')
-                for epoch in range(args.start_epoch, args.epochs):
-                    train_stats = train_one_epoch(
-                        model, criterion, data_loader_train, optimizer, device, epoch, args.clip_max_norm)
                     
-                    # 保存模型
-                    if args.output_dir:
-                        print("Saving base model...")
-                        checkpoint_paths = [output_dir / f'checkpoint_base_{epoch}.pth']
 
-                        for checkpoint_path in checkpoint_paths:
-                            utils.save_on_master({
-                                'model': model_without_ddp.state_dict(),
-                                'optimizer': optimizer.state_dict(),
-                                'lr_scheduler': lr_scheduler.state_dict(),
-                                'epoch': epoch,
-                                'args': args,
-                            }, checkpoint_path)
+                # 如果使用自定义数据集，先微调base类
+                if args.dataset_file != 'COCO': 
+                    print('start training base...')
 
-                    print("Testing results for base classes.")
-                    test_stats, coco_evaluator = evaluate_base(
-                    model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir,epoch)
+                    
+                    
+
+                    for epoch in range(args.start_epoch, args.epochs):
+                        
+                        train_stats = train_one_epoch(
+                            model, criterion, data_loader_train, optimizer, device, epoch, args.clip_max_norm)
+                        
+                        # 保存模型
+                        if args.output_dir:
+                            print("Saving base model...")
+                            checkpoint_paths = [output_dir / f'checkpoint_base_{epoch}.pth']
+
+                            for checkpoint_path in checkpoint_paths:
+                                utils.save_on_master({
+                                    'model': model_without_ddp.state_dict(),
+                                    'optimizer': optimizer.state_dict(),
+                                    'lr_scheduler': lr_scheduler.state_dict(),
+                                    'epoch': epoch,
+                                    'args': args,
+                                }, checkpoint_path)
+
+                        print("Testing results for base classes.")
+                        test_stats, coco_evaluator = evaluate_base(
+                        model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir,epoch)
             # else:
             #     # 遍历模型层并初始化权重
             #     def init_weights(m):
@@ -444,12 +524,10 @@ def main(args):
             for epoch in range(0, args.epochs):
                 if args.distributed:
                     sampler_train.set_epoch(epoch)
-                if phase_idx >= 1:
-                    train_stats = train_one_epoch_incremental(
+                
+                train_stats = train_one_epoch_incremental(
                         model, old_model, args.ref_loss_overall_coef, criterion, postprocessors, data_loader_train, optimizer, device, epoch, args.clip_max_norm)
-                else:
-                    train_stats = train_one_epoch(
-                        model, criterion, data_loader_train, optimizer, device, epoch, args.clip_max_norm)
+
                 lr_scheduler.step()
 
                 if args.output_dir:
@@ -468,18 +546,16 @@ def main(args):
                     model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir
                 )
                 print("Testing results for all.")
-                if phase_idx >= 1:
+
+                test_stats, coco_evaluator = evaluate(
+                    model, criterion, postprocessors, data_loader_val_old, base_ds_old, device, args.output_dir
+                )                   
+                print("Testing results for old.") 
                     
-                    
-                    test_stats, coco_evaluator = evaluate(
-                        model, criterion, postprocessors, data_loader_val_old, base_ds_old, device, args.output_dir
-                    )                   
-                    print("Testing results for old.") 
-                      
-                    test_stats, coco_evaluator = evaluate(
-                        model, criterion, postprocessors, data_loader_val_new, base_ds_new, device, args.output_dir
-                    )
-                    print("Testing results for new.") 
+                test_stats, coco_evaluator = evaluate(
+                    model, criterion, postprocessors, data_loader_val_new, base_ds_new, device, args.output_dir
+                )
+                print("Testing results for new.") 
 
             if args.balanced_ft and phase_idx >= 1:
                 for epoch in range(0, 20):
@@ -502,17 +578,16 @@ def main(args):
                             'args': args,
                         }, checkpoint_path)
 
-                    if phase_idx >= 1:
-                        
-                        test_stats, coco_evaluator = evaluate(
-                            model, criterion, postprocessors, data_loader_val_old, base_ds_old, device, args.output_dir
-                        )
-                        print("Balanced FT - Testing results for old.") 
-                                       
-                        test_stats, coco_evaluator = evaluate(
-                            model, criterion, postprocessors, data_loader_val_new, base_ds_new, device, args.output_dir
-                        )
-                        print("Balanced FT - Testing results for new.") 
+
+                    test_stats, coco_evaluator = evaluate(
+                        model, criterion, postprocessors, data_loader_val_old, base_ds_old, device, args.output_dir
+                    )
+                    print("Balanced FT - Testing results for old.") 
+                                    
+                    test_stats, coco_evaluator = evaluate(
+                        model, criterion, postprocessors, data_loader_val_new, base_ds_new, device, args.output_dir
+                    )
+                    print("Balanced FT - Testing results for new.") 
                           
                         
                     test_stats, coco_evaluator = evaluate(model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir)

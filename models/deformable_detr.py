@@ -96,6 +96,7 @@ class DeformableDETR(nn.Module):
         else:
             nn.init.constant_(self.bbox_embed.layers[-1].bias.data[2:], -2.0)
             self.class_embed = nn.ModuleList([self.class_embed for _ in range(num_pred)])
+            self.custom_class_embed = None
             self.bbox_embed = nn.ModuleList([self.bbox_embed for _ in range(num_pred)])
             self.transformer.decoder.bbox_embed = None
         if two_stage:

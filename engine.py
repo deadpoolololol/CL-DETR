@@ -354,11 +354,12 @@ def read_csv(csv_file):
         reader = csv.reader(f)
         next(reader, None)  # 跳过表头
         for row in reader:
-            epochs.append(int(row[0]))
-            losses.append(float(row[1]))
-            class_errors.append(float(row[2]))
-            for i in range(6):
-                coco_ap_metrics[i].append(float(row[3 + i]))
+            if row is not []:
+                epochs.append(int(row[0]))
+                losses.append(float(row[1]))
+                class_errors.append(float(row[2]))
+                for i in range(6):
+                    coco_ap_metrics[i].append(float(row[3 + i]))
 
     return np.array(epochs), np.array(losses), np.array(class_errors), np.array(coco_ap_metrics)
 

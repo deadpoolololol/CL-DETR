@@ -20,7 +20,7 @@ from models import build_model
 
 def get_args_parser():
     parser = argparse.ArgumentParser('Deformable DETR Detector', add_help=False)
-    parser.add_argument('--lr', default=2e-4, type=float)
+    parser.add_argument('--lr', default=2e-3, type=float)
     parser.add_argument('--lr_backbone_names', default=["backbone.0"], type=str, nargs='+')
     parser.add_argument('--lr_backbone', default=2e-5, type=float)
     parser.add_argument('--lr_linear_proj_names', default=['reference_points', 'sampling_offsets'], type=str, nargs='+')
@@ -28,8 +28,8 @@ def get_args_parser():
     parser.add_argument('--batch_size', default=2, type=int)
     parser.add_argument('--batch_size_val', default=8, type=int)
     parser.add_argument('--weight_decay', default=1e-4, type=float)
-    parser.add_argument('--epochs', default=50, type=int)
-    parser.add_argument('--lr_drop', default=40, type=int)
+    parser.add_argument('--epochs', default=10, type=int)
+    parser.add_argument('--lr_drop', default=10, type=int) # 40
     parser.add_argument('--lr_drop_balanced', default=10, type=int)
     parser.add_argument('--lr_drop_epochs', default=None, type=int, nargs='+')
     parser.add_argument('--clip_max_norm', default=0.1, type=float,
@@ -47,11 +47,11 @@ def get_args_parser():
     #                     help="Path to the pretrained model. If set, only the mask head will be trained")
     parser.add_argument('--frozen_weights', type=str, default=None,
                         help="Path to the pretrained model. If set, only the mask head will be trained")
-    parser.add_argument('--pretrain_weight', type=str, default=r"weights\phase_0.pth",
+    parser.add_argument('--pretrain_weight', type=str, default=r"outputs\phase_0\checkpoint_base_12.pth",
                         help="Path to the pretrained model.")
     # parser.add_argument('--pretrain_weight', type=str, default=None,
     #                     help="Path to the pretrained model.")
-    parser.add_argument('--is_checkpoint', type=bool, default=False,
+    parser.add_argument('--is_checkpoint', type=bool, default=True,
                         help="是否加载断点.")
 
     # * Backbone
@@ -132,7 +132,7 @@ def get_args_parser():
     parser.add_argument('--resume', default='', help='resume from checkpoint')
     parser.add_argument('--start_epoch', default=0, type=int, metavar='N',
                         help='start epoch')
-    parser.add_argument('--num_workers', default=1, type=int)
+    parser.add_argument('--num_workers', default=0, type=int)
     parser.add_argument('--cache_mode', default=False, action='store_true', help='whether to cache images on memory')
 
     # incremental parameters 
@@ -163,7 +163,7 @@ def get_optimizer_lr_scheduler(args,model,phase_idx=0):
     # 如果自定义数据集,并且只有base阶段
     if args.class_nums != 91 and phase_idx==0: 
         # 冻结所有层
-        for name, param in model.parameters():
+        for name, param in model.named_parameters():
             if "custom_class_embed" not in name:
                 param.requires_grad = False
 
@@ -181,7 +181,7 @@ def get_optimizer_lr_scheduler(args,model,phase_idx=0):
             {
                 "params":
                     [p for n, p in model.named_parameters()
-                    if not model(n, args.lr_backbone_names) and not match_name_keywords(n, args.lr_linear_proj_names) and p.requires_grad],
+                    if not match_name_keywords(n, args.lr_backbone_names) and not match_name_keywords(n, args.lr_linear_proj_names) and p.requires_grad],
                 "lr": args.lr,
             },
             {
@@ -195,16 +195,16 @@ def get_optimizer_lr_scheduler(args,model,phase_idx=0):
         ]
         print('setting the optimizer...')
 
-        if args.sgd:
-            optimizer = torch.optim.SGD(param_dicts, lr=args.lr, momentum=0.9,
-                                        weight_decay=args.weight_decay)
-        else:
-            optimizer = torch.optim.AdamW(param_dicts, lr=args.lr,
-                                        weight_decay=args.weight_decay)
-        if phase_idx==0:
-            lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_drop)
-        else:
-            lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_drop_balanced)
+    if args.sgd:
+        optimizer = torch.optim.SGD(param_dicts, lr=args.lr, momentum=0.9,
+                                    weight_decay=args.weight_decay)
+    else:
+        optimizer = torch.optim.AdamW(param_dicts, lr=args.lr,
+                                    weight_decay=args.weight_decay)
+    if phase_idx==0:
+        lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_drop)
+    else:
+        lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_drop_balanced)
 
     return optimizer, lr_scheduler
 

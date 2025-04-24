@@ -443,8 +443,8 @@ def main(args):
 
                     # 先测试再训练
                     print("Testing results for given weights")
-                    test_stats, coco_evaluator = evaluate_base(
-                        model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir,checkpoint['epoch'])
+                    test_stats, coco_evaluator = evaluate(
+                        model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir,checkpoint['epoch'],"base")
 
                     
 
@@ -475,8 +475,8 @@ def main(args):
                                 }, checkpoint_path)
 
                         print("Testing results for base classes.")
-                        test_stats, coco_evaluator = evaluate_base(
-                        model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir,epoch)
+                        test_stats, coco_evaluator = evaluate(
+                        model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir,epoch,"base")
             # else:
             #     # 遍历模型层并初始化权重
             #     def init_weights(m):
@@ -507,8 +507,8 @@ def main(args):
                             }, checkpoint_path)
 
                     print("Testing results for all.")
-                    test_stats, coco_evaluator = evaluate_base(
-                    model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir)
+                    test_stats, coco_evaluator = evaluate(
+                    model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir,"base")
             
             
             
@@ -543,17 +543,17 @@ def main(args):
                     }, checkpoint_path)
 
                 test_stats, coco_evaluator = evaluate(
-                    model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir
+                    model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir,epoch,"all"
                 )
                 print("Testing results for all.")
 
                 test_stats, coco_evaluator = evaluate(
-                    model, criterion, postprocessors, data_loader_val_old, base_ds_old, device, args.output_dir
+                    model, criterion, postprocessors, data_loader_val_old, base_ds_old, device, args.output_dir,epoch,"old"
                 )                   
                 print("Testing results for old.") 
                     
                 test_stats, coco_evaluator = evaluate(
-                    model, criterion, postprocessors, data_loader_val_new, base_ds_new, device, args.output_dir
+                    model, criterion, postprocessors, data_loader_val_new, base_ds_new, device, args.output_dir,epoch,"new"
                 )
                 print("Testing results for new.") 
 
@@ -580,17 +580,19 @@ def main(args):
 
 
                     test_stats, coco_evaluator = evaluate(
-                        model, criterion, postprocessors, data_loader_val_old, base_ds_old, device, args.output_dir
+                        model, criterion, postprocessors, data_loader_val_old, base_ds_old, device, args.output_dir,epoch,"balanced_FT_old"
                     )
                     print("Balanced FT - Testing results for old.") 
                                     
                     test_stats, coco_evaluator = evaluate(
-                        model, criterion, postprocessors, data_loader_val_new, base_ds_new, device, args.output_dir
+                        model, criterion, postprocessors, data_loader_val_new, base_ds_new, device, args.output_dir,epoch,"balanced_FT_new"
                     )
                     print("Balanced FT - Testing results for new.") 
                           
                         
-                    test_stats, coco_evaluator = evaluate(model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir)
+                    test_stats, coco_evaluator = evaluate(
+                        model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir,epoch,"balanced_FT_all"
+                        )
                     print("Balanced FT - Testing results for all.")                           
 
             

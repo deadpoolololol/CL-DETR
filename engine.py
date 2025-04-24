@@ -35,14 +35,19 @@ def train_one_epoch_incremental(model: torch.nn.Module, old_model: torch.nn.Modu
     # for samples, targets in metric_logger.log_every(data_loader, print_freq, header):
     for _ in metric_logger.log_every(range(len(data_loader)), print_freq, header):
         outputs = model(samples)
-        ref_outputs = old_model(samples)
 
-        orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)
-        ref_results = postprocessors['bbox'](ref_outputs, orig_target_sizes, 10, distillation=True)
+        ref_outputs = old_model(samples)
+        orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0) # 原输出尺寸
+        
+        # 根据旧模型的输出来生成伪标签
+        ref_results = postprocessors['bbox'](ref_outputs, orig_target_sizes, 10, distillation=True) # 取前K=10个
+        
+        # 计算旧模型的损失
         ref_loss_dict = criterion(outputs, ref_results, enable_aux=False)
         ref_weight_dict = criterion.ref_weight_dict
         ref_losses = sum(ref_loss_dict[k] * ref_weight_dict[k] for k in ref_loss_dict.keys() if k in ref_weight_dict)
 
+        # 使用 IoU（交并比）计算来决定哪些伪标签可以被加入到训练数据
         for img_idx in range(len(targets)):
             include_list = []
             for ref_box_idx in range(len(ref_results[img_idx]['boxes'])):
@@ -53,10 +58,11 @@ def train_one_epoch_incremental(model: torch.nn.Module, old_model: torch.nn.Modu
                     this_target_box = targets[img_idx]['boxes'][target_box_idx]
                     this_target_box = torch.reshape(this_target_box, (1, -1))
                     iou, union = box_ops.box_iou(box_ops.box_cxcywh_to_xyxy(this_ref_box), box_ops.box_cxcywh_to_xyxy(this_target_box))
-                    if iou >= 0.7:
+                    if iou >= 0.7: # λ = 0.7
                         include_this_pseudo_label = False
                 include_list.append(include_this_pseudo_label)
-                    
+
+            # 伪标签会被添加到 targets 中  
             targets[img_idx]['boxes'] = torch.cat((targets[img_idx]['boxes'], ref_results[img_idx]['boxes'][include_list]), 0)
             targets[img_idx]['labels'] = torch.cat((targets[img_idx]['labels'], ref_results[img_idx]['labels'][include_list]), 0)          
 
@@ -119,6 +125,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     # for samples, targets in metric_logger.log_every(data_loader, print_freq, header):
     for _ in metric_logger.log_every(range(len(data_loader)), print_freq, header):
         outputs = model(samples)
+
         loss_dict = criterion(outputs, targets)
         weight_dict = criterion.weight_dict
         losses = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
@@ -159,7 +166,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
 
 @torch.no_grad()
-def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, output_dir):
+def evaluate_base(model, criterion, postprocessors, data_loader, base_ds, device, output_dir):
     model.eval()
     criterion.eval()
 
@@ -240,7 +247,7 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, out
 
 
 @torch.no_grad()
-def evaluate_base(model, criterion, postprocessors, data_loader, base_ds, device, output_dir,epoch_num):
+def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, output_dir,epoch_num,suffix="base"):
     model.eval()
     criterion.eval()
 
@@ -320,7 +327,7 @@ def evaluate_base(model, criterion, postprocessors, data_loader, base_ds, device
         coco_ap_metrics.append(coco_ap_stats)  # 存储所有 AP 指标
 
     # 保存 CSV
-    csv_file = os.path.join(output_dir, "evaluation_results_base.csv")
+    csv_file = os.path.join(output_dir, f"evaluation_results_{suffix}.csv")
     epochs, losses, class_errors, aps = read_csv(csv_file)
     save_results_to_csv(csv_file, loss_list, class_error_list, coco_ap_metrics,epochs,epoch_num)
 
@@ -382,7 +389,7 @@ def save_results_to_csv(csv_file, loss_list, class_error_list, coco_ap_metrics,e
 
 
 
-def plot_results(csv_file,output_dir, loss_list, class_error_list, coco_ap_metrics,existing_epochs,losses, class_errors, aps,epoch_num):
+def plot_results(csv_file,output_dir, loss_list, class_error_list, coco_ap_metrics,existing_epochs,losses, class_errors, aps,epoch_num,suffix="base"):
     """ 绘制损失、误差率和 COCO 评估曲线 """
 
     loss_avg = sum(loss_list) / len(loss_list)
@@ -413,7 +420,7 @@ def plot_results(csv_file,output_dir, loss_list, class_error_list, coco_ap_metri
         fig.tight_layout()
         plt.title("Loss & Class Error over Epochs")
         plt.legend()
-        plt.savefig(os.path.join(output_dir, "loss_error_curve_base.png"))
+        plt.savefig(os.path.join(output_dir, f"loss_error_curve_{suffix}.png"))
         plt.close()
 
         # 绘制 COCO AP 指标
@@ -430,7 +437,7 @@ def plot_results(csv_file,output_dir, loss_list, class_error_list, coco_ap_metri
         plt.ylabel("COCO AP")
         plt.title("COCO AP Metrics over Epochs")
         plt.legend()
-        plt.savefig(os.path.join(output_dir, "coco_ap_metrics_curve_base.png"))
+        plt.savefig(os.path.join(output_dir, f"coco_ap_metrics_curve_{suffix}.png"))
         plt.close()
 
 

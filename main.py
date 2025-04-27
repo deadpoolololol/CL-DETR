@@ -47,7 +47,7 @@ def get_args_parser():
     #                     help="Path to the pretrained model. If set, only the mask head will be trained")
     parser.add_argument('--frozen_weights', type=str, default=None,
                         help="Path to the pretrained model. If set, only the mask head will be trained")
-    parser.add_argument('--pretrain_weight', type=str, default=r"outputs\phase_0\checkpoint_base_12.pth",
+    parser.add_argument('--pretrain_weight', type=str, default=r"outputs\phase_0\checkpoint_cre_1.pth",
                         help="Path to the pretrained model.")
     # parser.add_argument('--pretrain_weight', type=str, default=None,
     #                     help="Path to the pretrained model.")
@@ -271,7 +271,15 @@ def main(args):
     ann_memory = {}
     imgToAnns_memory = {}
 
-    for phase_idx in range(total_phase_num):
+    checkpoint = torch.load(args.pretrain_weight, map_location='cpu')
+
+    # 获取checkpoint中的phase_idx
+    try:
+        start_phase_idx = checkpoint['phase_idx']
+    except:
+        start_phase_idx = 0
+
+    for phase_idx in range(start_phase_idx,total_phase_num):
         print('training phase '+ str(phase_idx) + '...')
         dataset_train = build_dataset(image_set='train', args=args, cls_order=cls_order, \
             phase_idx=phase_idx, incremental=True, incremental_val=False, val_each_phase=False)
@@ -403,7 +411,7 @@ def main(args):
         print("start training")
         start_time = time.time()
 
-        epoch = 0
+        epoch_cre = 0
 
         if phase_idx==0:
 
@@ -413,7 +421,7 @@ def main(args):
             if args.pretrain_weight is not None:
                 print('pretrained weights given...')
                 # 加载预训练权重并测试
-                checkpoint = torch.load(args.pretrain_weight, map_location='cpu')
+                
                 missing_keys, unexpected_keys = model_without_ddp.load_state_dict(checkpoint['model'], strict=False)
                 unexpected_keys = [k for k in unexpected_keys if not (k.endswith('total_params') or k.endswith('total_ops'))]
                 if len(missing_keys) > 0:
@@ -452,31 +460,29 @@ def main(args):
                 if args.dataset_file != 'COCO': 
                     print('start training base...')
 
-                    
-                    
-
-                    for epoch in range(args.start_epoch, args.epochs):
+                    for epoch_cre in range(args.start_epoch, args.epochs):
                         
                         train_stats = train_one_epoch(
-                            model, criterion, data_loader_train, optimizer, device, epoch, args.clip_max_norm)
+                            model, criterion, data_loader_train, optimizer, device, epoch_cre, args.clip_max_norm)
                         
                         # 保存模型
                         if args.output_dir:
                             print("Saving base model...")
-                            checkpoint_paths = [output_dir / f'checkpoint_base_{epoch}.pth']
+                            checkpoint_paths = [output_dir / f'checkpoint_base_{epoch_cre}.pth']
 
                             for checkpoint_path in checkpoint_paths:
                                 utils.save_on_master({
                                     'model': model_without_ddp.state_dict(),
                                     'optimizer': optimizer.state_dict(),
                                     'lr_scheduler': lr_scheduler.state_dict(),
-                                    'epoch': epoch,
+                                    'epoch': epoch_cre,
                                     'args': args,
+                                    'phase_idx':phase_idx
                                 }, checkpoint_path)
 
                         print("Testing results for base classes.")
                         test_stats, coco_evaluator = evaluate(
-                        model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir,epoch,"base")
+                        model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir,epoch_cre,"base")
             # else:
             #     # 遍历模型层并初始化权重
             #     def init_weights(m):
@@ -488,112 +494,143 @@ def main(args):
             else:
                 print('no pretrained weights...')
                 print('start training base...')
-                for epoch in range(0, args.epochs):
+                for epoch_cre in range(0, args.epochs):
                     train_stats = train_one_epoch(
-                        model, criterion, data_loader_train, optimizer, device, epoch, args.clip_max_norm)
+                        model, criterion, data_loader_train, optimizer, device, epoch_cre, args.clip_max_norm)
                     
                     # 保存模型
                     if args.output_dir:
                         print("Saving base model...")
-                        checkpoint_paths = [output_dir / f'checkpoint_base_{epoch}.pth']
+                        checkpoint_paths = [output_dir / f'checkpoint_base_{epoch_cre}.pth']
 
                         for checkpoint_path in checkpoint_paths:
                             utils.save_on_master({
                                 'model': model_without_ddp.state_dict(),
                                 'optimizer': optimizer.state_dict(),
                                 'lr_scheduler': lr_scheduler.state_dict(),
-                                'epoch': epoch,
+                                'epoch': epoch_cre,
                                 'args': args,
+                                'phase_idx':phase_idx
                             }, checkpoint_path)
 
                     print("Testing results for all.")
                     test_stats, coco_evaluator = evaluate(
                     model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir,"base")
             
-            
-            
-
- 
             # print("Testing all....")
             # test_stats, coco_evaluator = evaluate(
             #     model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir
-            # )        
-        else:
+            # )  
+                          
+        else: # 增量学习阶段
             if phase_idx >= 1:
                 old_model = copy.deepcopy(model)
-            for epoch in range(0, args.epochs):
+            
+            # 是否断点重载
+            if args.is_checkpoint:
+                try:
+                    args.start_epoch = checkpoint['epoch_cre'] + 1
+                except:
+                    args.start_epoch = 0
+                print(f'Starting training from epoch {args.start_epoch}'.format(args.start_epoch))
+            
+                print("Testing results for new.")                     
+                test_stats, coco_evaluator = evaluate(
+                    model, criterion, postprocessors, data_loader_val_new, base_ds_new, device, args.output_dir,args.start_epoch,"new"
+                )
+                
+                print("Testing results for old.")
+                test_stats, coco_evaluator = evaluate(
+                    model, criterion, postprocessors, data_loader_val_old, base_ds_old, device, args.output_dir,args.start_epoch,"old"
+                )     
+
+                print("Testing results for all.")
+                test_stats, coco_evaluator = evaluate(
+                    model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir,args.start_epoch,"all"
+                )
+            
+
+            
+            for epoch_cre in range(args.start_epoch, args.epochs):
                 if args.distributed:
-                    sampler_train.set_epoch(epoch)
+                    sampler_train.set_epoch(epoch_cre)
                 
                 train_stats = train_one_epoch_incremental(
-                        model, old_model, args.ref_loss_overall_coef, criterion, postprocessors, data_loader_train, optimizer, device, epoch, args.clip_max_norm)
+                        model, old_model, args.ref_loss_overall_coef, criterion, postprocessors, data_loader_train, optimizer, device, epoch_cre, args.clip_max_norm)
 
                 lr_scheduler.step()
 
                 if args.output_dir:
-                    checkpoint_paths = [output_dir / f'checkpoint_cre_{epoch}.pth']
+                    checkpoint_paths = [output_dir / f'checkpoint_cre_{epoch_cre}.pth']
 
                 for checkpoint_path in checkpoint_paths:
                     utils.save_on_master({
                         'model': model_without_ddp.state_dict(),
                         'optimizer': optimizer.state_dict(),
                         'lr_scheduler': lr_scheduler.state_dict(),
-                        'epoch': epoch,
+                        'epoch': args.epochs,
                         'args': args,
+                        'phase_idx':phase_idx,
+                        'epoch_cre':epoch_cre
                     }, checkpoint_path)
 
-                test_stats, coco_evaluator = evaluate(
-                    model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir,epoch,"all"
-                )
-                print("Testing results for all.")
+                
 
+                print("Testing results for new.")                     
                 test_stats, coco_evaluator = evaluate(
-                    model, criterion, postprocessors, data_loader_val_old, base_ds_old, device, args.output_dir,epoch,"old"
-                )                   
-                print("Testing results for old.") 
-                    
-                test_stats, coco_evaluator = evaluate(
-                    model, criterion, postprocessors, data_loader_val_new, base_ds_new, device, args.output_dir,epoch,"new"
+                    model, criterion, postprocessors, data_loader_val_new, base_ds_new, device, args.output_dir,epoch_cre,"new"
                 )
-                print("Testing results for new.") 
+                
+                print("Testing results for old.")
+                test_stats, coco_evaluator = evaluate(
+                    model, criterion, postprocessors, data_loader_val_old, base_ds_old, device, args.output_dir,epoch_cre,"old"
+                )     
+
+                print("Testing results for all.")
+                test_stats, coco_evaluator = evaluate(
+                    model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir,epoch_cre,"all"
+                )              
+ 
+                
 
             if args.balanced_ft and phase_idx >= 1:
-                for epoch in range(0, 20):
+                for epoch_cre in range(0, 20):
                     if args.distributed:
-                        sampler_train_balanced.set_epoch(epoch)
+                        sampler_train_balanced.set_epoch(epoch_cre)
 
                     train_stats = train_one_epoch(
-                        model, criterion, data_loader_train_balanced, optimizer_balanced, device, epoch, args.clip_max_norm)
+                        model, criterion, data_loader_train_balanced, optimizer_balanced, device, epoch_cre, args.clip_max_norm)
                     lr_scheduler_balanced.step()
 
                     if args.output_dir:
-                        checkpoint_paths = [output_dir / f'checkpoint_cre_{epoch}.pth']
+                        checkpoint_paths = [output_dir / f'checkpoint_cre_{epoch_cre}.pth']
 
                     for checkpoint_path in checkpoint_paths:
                         utils.save_on_master({
                             'model': model_without_ddp.state_dict(),
                             'optimizer': optimizer.state_dict(),
                             'lr_scheduler': lr_scheduler.state_dict(),
-                            'epoch': epoch,
+                            'epoch': epoch_cre,
                             'args': args,
+                            'phase_idx':phase_idx
                         }, checkpoint_path)
 
 
+                    print("Balanced FT - Testing results for new.")                                    
                     test_stats, coco_evaluator = evaluate(
-                        model, criterion, postprocessors, data_loader_val_old, base_ds_old, device, args.output_dir,epoch,"balanced_FT_old"
+                        model, criterion, postprocessors, data_loader_val_new, base_ds_new, device, args.output_dir,epoch_cre,"balanced_FT_new"
                     )
-                    print("Balanced FT - Testing results for old.") 
-                                    
+
+                    print("Balanced FT - Testing results for old.")
                     test_stats, coco_evaluator = evaluate(
-                        model, criterion, postprocessors, data_loader_val_new, base_ds_new, device, args.output_dir,epoch,"balanced_FT_new"
+                        model, criterion, postprocessors, data_loader_val_old, base_ds_old, device, args.output_dir,epoch_cre,"balanced_FT_old"
                     )
-                    print("Balanced FT - Testing results for new.") 
-                          
-                        
+                      
+                    print("Balanced FT - Testing results for all.")                          
                     test_stats, coco_evaluator = evaluate(
-                        model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir,epoch,"balanced_FT_all"
+                        model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir,epoch_cre,"balanced_FT_all"
                         )
-                    print("Balanced FT - Testing results for all.")                           
+                         
 
             
 

@@ -332,7 +332,7 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, out
     save_results_to_csv(csv_file, loss_list, class_error_list, coco_ap_metrics,epochs,epoch_num)
 
     # 绘制结果
-    plot_results(csv_file,output_dir, loss_list, class_error_list, coco_ap_metrics,epochs,losses, class_errors, aps,epoch_num)
+    plot_results(csv_file,output_dir, loss_list, class_error_list, coco_ap_metrics,epochs,losses, class_errors, aps,epoch_num,suffix)
 
     return stats, coco_evaluator
 
@@ -379,12 +379,13 @@ def save_results_to_csv(csv_file, loss_list, class_error_list, coco_ap_metrics,e
         writer = csv.writer(f)
         if len(existing_epochs) == 0 :
             writer.writerow(["Epoch", "Loss", "Class Error", "AP", "AP50", "AP75", "APS", "APM", "APL"])  # 表头
-        
-        writer.writerow([
-            epoch_num, loss_avg, class_error_avg,
-            coco_ap_metrics[0][0], coco_ap_metrics[0][1], coco_ap_metrics[0][2], 
-            coco_ap_metrics[0][3], coco_ap_metrics[0][4], coco_ap_metrics[0][5]
-        ])
+
+        if epoch_num  not in existing_epochs:
+            writer.writerow([
+                epoch_num, loss_avg, class_error_avg,
+                coco_ap_metrics[0][0], coco_ap_metrics[0][1], coco_ap_metrics[0][2], 
+                coco_ap_metrics[0][3], coco_ap_metrics[0][4], coco_ap_metrics[0][5]
+            ])
 
 
 
@@ -423,7 +424,7 @@ def plot_results(csv_file,output_dir, loss_list, class_error_list, coco_ap_metri
     plt.close()
 
     # 绘制 COCO AP 指标
-    coco_ap_metrics = np.array(coco_ap_metrics)
+    # coco_ap_metrics = np.array(coco_ap_metrics)
     plt.figure()
     plt.plot(existing_epochs, aps[0], label="AP", color="tab:green")
     plt.plot(existing_epochs, aps[1], label="AP50", color="tab:blue")

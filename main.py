@@ -47,7 +47,7 @@ def get_args_parser():
     #                     help="Path to the pretrained model. If set, only the mask head will be trained")
     parser.add_argument('--frozen_weights', type=str, default=None,
                         help="Path to the pretrained model. If set, only the mask head will be trained")
-    parser.add_argument('--pretrain_weight', type=str, default=r"outputs\phase_0\checkpoint_cre_1.pth",
+    parser.add_argument('--pretrain_weight', type=str, default=r"outputs\phase_0\checkpoint_base_12.pth",
                         help="Path to the pretrained model.")
     # parser.add_argument('--pretrain_weight', type=str, default=None,
     #                     help="Path to the pretrained model.")
@@ -411,7 +411,7 @@ def main(args):
         print("start training")
         start_time = time.time()
 
-        epoch_cre = 0
+        epoch = 0
 
         if phase_idx==0:
 
@@ -460,29 +460,29 @@ def main(args):
                 if args.dataset_file != 'COCO': 
                     print('start training base...')
 
-                    for epoch_cre in range(args.start_epoch, args.epochs):
+                    for epoch in range(args.start_epoch, args.epochs):
                         
                         train_stats = train_one_epoch(
-                            model, criterion, data_loader_train, optimizer, device, epoch_cre, args.clip_max_norm)
+                            model, criterion, data_loader_train, optimizer, device, epoch, args.clip_max_norm)
                         
                         # 保存模型
                         if args.output_dir:
                             print("Saving base model...")
-                            checkpoint_paths = [output_dir / f'checkpoint_base_{epoch_cre}.pth']
+                            checkpoint_paths = [output_dir / f'checkpoint_base_{epoch}.pth']
 
                             for checkpoint_path in checkpoint_paths:
                                 utils.save_on_master({
                                     'model': model_without_ddp.state_dict(),
                                     'optimizer': optimizer.state_dict(),
                                     'lr_scheduler': lr_scheduler.state_dict(),
-                                    'epoch': epoch_cre,
+                                    'epoch': epoch,
                                     'args': args,
                                     'phase_idx':phase_idx
                                 }, checkpoint_path)
 
                         print("Testing results for base classes.")
                         test_stats, coco_evaluator = evaluate(
-                        model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir,epoch_cre,"base")
+                        model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir,epoch,"base")
             # else:
             #     # 遍历模型层并初始化权重
             #     def init_weights(m):
@@ -491,24 +491,25 @@ def main(args):
             #         if hasattr(m, 'bias') and m.bias is not None:
             #             torch.nn.init.constant_(m.bias, 0)  # 将 bias 初始化为 0
             #     model_without_ddp.apply(init_weights)
+                        
             else:
                 print('no pretrained weights...')
                 print('start training base...')
-                for epoch_cre in range(0, args.epochs):
+                for epoch in range(0, args.epochs):
                     train_stats = train_one_epoch(
-                        model, criterion, data_loader_train, optimizer, device, epoch_cre, args.clip_max_norm)
+                        model, criterion, data_loader_train, optimizer, device, epoch, args.clip_max_norm)
                     
                     # 保存模型
                     if args.output_dir:
                         print("Saving base model...")
-                        checkpoint_paths = [output_dir / f'checkpoint_base_{epoch_cre}.pth']
+                        checkpoint_paths = [output_dir / f'checkpoint_base_{epoch}.pth']
 
                         for checkpoint_path in checkpoint_paths:
                             utils.save_on_master({
                                 'model': model_without_ddp.state_dict(),
                                 'optimizer': optimizer.state_dict(),
                                 'lr_scheduler': lr_scheduler.state_dict(),
-                                'epoch': epoch_cre,
+                                'epoch': epoch,
                                 'args': args,
                                 'phase_idx':phase_idx
                             }, checkpoint_path)
@@ -550,7 +551,6 @@ def main(args):
                 )
             
 
-            
             for epoch_cre in range(args.start_epoch, args.epochs):
                 if args.distributed:
                     sampler_train.set_epoch(epoch_cre)
@@ -591,7 +591,6 @@ def main(args):
                     model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir,epoch_cre,"all"
                 )              
  
-                
 
             if args.balanced_ft and phase_idx >= 1:
                 for epoch_cre in range(0, 20):
@@ -610,9 +609,10 @@ def main(args):
                             'model': model_without_ddp.state_dict(),
                             'optimizer': optimizer.state_dict(),
                             'lr_scheduler': lr_scheduler.state_dict(),
-                            'epoch': epoch_cre,
+                            'epoch': args.epochs,
                             'args': args,
-                            'phase_idx':phase_idx
+                            'phase_idx':phase_idx,
+                            'epoch_cre':epoch_cre
                         }, checkpoint_path)
 
 

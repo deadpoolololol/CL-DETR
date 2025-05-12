@@ -16,7 +16,7 @@ from datasets import build_dataset, get_coco_api_from_dataset
 from datasets.incremental import generate_cls_order
 from engine import evaluate, train_one_epoch, train_one_epoch_incremental, evaluate_base
 from models import build_model
-# from tensorboardX import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 
 def get_args_parser():
     parser = argparse.ArgumentParser('Deformable DETR Detector', add_help=False)
@@ -47,7 +47,7 @@ def get_args_parser():
     #                     help="Path to the pretrained model. If set, only the mask head will be trained")
     parser.add_argument('--frozen_weights', type=str, default=None,
                         help="Path to the pretrained model. If set, only the mask head will be trained")
-    parser.add_argument('--pretrain_weight', type=str, default=r"outputs\phase_0\checkpoint_base_12.pth",
+    parser.add_argument('--pretrain_weight', type=str, default=r"outputs\phase_1\checkpoint_cre_8.pth",
                         help="Path to the pretrained model.")
     # parser.add_argument('--pretrain_weight', type=str, default=None,
     #                     help="Path to the pretrained model.")
@@ -147,6 +147,9 @@ def get_args_parser():
 
     parser.add_argument('--debug_mode', default=False, action='store_true')
     parser.add_argument('--balanced_ft', default=True, action='store_true')
+
+    # weak supervision parameters
+    parser.add_argument('--k_layers', default=2, type=int,help='ALN 层数')
 
     return parser
 

@@ -41,7 +41,7 @@ def plot_results(csv_file,output_dir,existing_epochs,losses, class_errors, aps,s
     ax2.tick_params(axis="y", labelcolor="tab:red")
 
     fig.tight_layout()
-    plt.title("Loss & Class Error over Epochs")
+    plt.title(f"Loss & Class Error over Epochs {suffix}")
     plt.legend()
     plt.savefig(os.path.join(output_dir, f"loss_error_curve_{suffix}.png"))
     plt.close()
@@ -57,7 +57,7 @@ def plot_results(csv_file,output_dir,existing_epochs,losses, class_errors, aps,s
 
     plt.xlabel("Epoch")
     plt.ylabel("COCO AP")
-    plt.title("COCO AP Metrics over Epochs")
+    plt.title(f"COCO AP Metrics over Epochs {suffix}")
     plt.legend()
     plt.savefig(os.path.join(output_dir, f"coco_ap_metrics_curve_{suffix}.png"))
     plt.close()

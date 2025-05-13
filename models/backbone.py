@@ -1,3 +1,5 @@
+
+
 """
 Backbone modules.
 """
@@ -13,34 +15,7 @@ from typing import Dict, List
 from util.misc import NestedTensor, is_main_process
 
 from .position_encoding import build_position_encoding
-
-# ALN 模块
-class ALN(nn.Module):
-    def __init__(self, embed_dim=1024, num_heads=8, k_layers=1):
-        super().__init__()
-        self.k_layers = k_layers
-        self.attn_layers = nn.ModuleList([
-            nn.MultiheadAttention(embed_dim, num_heads, batch_first=True)
-            for _ in range(k_layers)
-        ])
-        self.norm_layers = nn.ModuleList([
-            nn.LayerNorm(embed_dim) for _ in range(k_layers)
-        ])
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        输入: x 形状为 [B, C, H, W]
-        输出: 同形状的 Tensor
-        """
-        B, C, H, W = x.shape
-        x = x.flatten(2).permute(0, 2, 1)  # [B, H*W, C]
-        for attn, norm in zip(self.attn_layers, self.norm_layers):
-            residual = x
-            x, _ = attn(x, x, x)
-            x = norm(x + residual)
-        x = x.permute(0, 2, 1).reshape(B, C, H, W)
-        return x
-
+from .aln import ALN
 
 
 class FrozenBatchNorm2d(torch.nn.Module):
@@ -85,8 +60,12 @@ class FrozenBatchNorm2d(torch.nn.Module):
 
 class BackboneBase(nn.Module):
 
-    def __init__(self, backbone: nn.Module, train_backbone: bool, return_interm_layers: bool, custom_module=None):
+    def __init__(self, backbone: nn.Module, train_backbone: bool, return_interm_layers: bool, aln=None):
         super().__init__()
+
+
+        self.aln = aln
+        
         for name, parameter in backbone.named_parameters():
             if not train_backbone or 'layer2' not in name and 'layer3' not in name and 'layer4' not in name:
                 parameter.requires_grad_(False)
@@ -100,22 +79,25 @@ class BackboneBase(nn.Module):
             self.strides = [32]
             self.num_channels = [2048]
         self.body = IntermediateLayerGetter(backbone, return_layers=return_layers)
-        self.custom_module = custom_module  # 插入在 layer3 后
+        # self.custom_module = custom_module  # 插入在 layer3 后
 
     def forward(self, tensor_list: NestedTensor):
         xs = self.body(tensor_list.tensors)
         out: Dict[str, NestedTensor] = {}
+
+        aln_output = None
+
         for name, x in xs.items():
             m = tensor_list.mask
             assert m is not None
             mask = F.interpolate(m[None].float(), size=x.shape[-2:]).to(torch.bool)[0]
 
-            # 在 layer3 后应用自定义 MHSA 模块
-            if name == "1" and self.custom_module is not None:
-                x = self.custom_module(x)
+            # 在 layer3 输出后单独分支接入 ALN
+            if self.aln is not None and name == "1":  # "1" 是 layer3
+                aln_output = self.aln(x)
 
             out[name] = NestedTensor(x, mask)
-        return out
+        return out, aln_output
 
 
 class Backbone(BackboneBase):
@@ -142,7 +124,7 @@ class Joiner(nn.Sequential):
         self.num_channels = backbone.num_channels
 
     def forward(self, tensor_list: NestedTensor):
-        xs = self[0](tensor_list)
+        xs, aln_output = self[0](tensor_list)
         out: List[NestedTensor] = []
         pos = []
         for name, x in sorted(xs.items()):
@@ -152,7 +134,7 @@ class Joiner(nn.Sequential):
         for x in out:
             pos.append(self[1](x).to(x.tensors.dtype))
 
-        return out, pos
+        return out, pos, aln_output
 
 
 def build_backbone(args):
@@ -160,9 +142,9 @@ def build_backbone(args):
     train_backbone = args.lr_backbone > 0
     return_interm_layers = args.masks or (args.num_feature_levels > 1)
 
-    # 插入 K 层 MHSA 模块（注意通道必须与 layer3 输出匹配）
-    custom_module = ALN(embed_dim=1024, num_heads=8, k_layers=args.k_layers)
+    # 创建 ALN 模块（嵌入维度需与 layer3 的输出通道对齐：1024）
+    aln_module = ALN(embed_dim=1024, num_heads=8, k_layers=args.k_layers)
 
-    backbone = Backbone(args.backbone, train_backbone, return_interm_layers, args.dilation,custom_module)
+    backbone = Backbone(args.backbone, train_backbone, return_interm_layers, args.dilation,aln_module)
     model = Joiner(backbone, position_embedding)
     return model

@@ -154,6 +154,9 @@ def get_args_parser():
     return parser
 
 def get_optimizer_lr_scheduler(args,model,phase_idx=0):
+    """
+    加载优化器和学习率调度器，根据是否是base阶段进行不同设置
+    """
 
     def match_name_keywords(n, name_keywords):
             out = False

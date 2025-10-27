@@ -191,7 +191,7 @@ def evaluate_base(model, criterion, postprocessors, data_loader, base_ds, device
             data_loader.dataset.ann_folder,
             output_dir=os.path.join(output_dir, "panoptic_eval"),
         )
-    print_freq = 50
+    print_freq = 50 # 每50打印
     for samples, targets in metric_logger.log_every(data_loader, print_freq, header):
         samples = samples.to(device)
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]

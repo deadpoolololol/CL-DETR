@@ -25,10 +25,10 @@ def get_args_parser():
     parser.add_argument('--lr_backbone', default=2e-5, type=float) # 主干网络学习率 修改
     parser.add_argument('--lr_linear_proj_names', default=['reference_points', 'sampling_offsets'], type=str, nargs='+')
     parser.add_argument('--lr_linear_proj_mult', default=0.1, type=float)
-    parser.add_argument('--batch_size', default=4, type=int) # 训练批量大小 修改
-    parser.add_argument('--batch_size_val', default=8, type=int) # 测试批量大小 修改
+    parser.add_argument('--batch_size', default=2, type=int) # 训练批量大小 修改
+    parser.add_argument('--batch_size_val', default=4, type=int) # 测试批量大小 修改
     parser.add_argument('--weight_decay', default=1e-4, type=float)
-    parser.add_argument('--epochs', default=5, type=int) # 训练轮数 修改
+    parser.add_argument('--epochs', default=10, type=int) # 训练轮数 修改
     parser.add_argument('--lr_drop', default=10, type=int) # 40
     parser.add_argument('--lr_drop_balanced', default=10, type=int)
     parser.add_argument('--lr_drop_epochs', default=None, type=int, nargs='+')
@@ -117,13 +117,18 @@ def get_args_parser():
     parser.add_argument('--ref_loss_overall_coef', default=1, type=float)
 
     # dataset parameters
-    # parser.add_argument('--dataset_file', default='COCO')
-    # parser.add_argument('--class_nums', default=91, type=int)
-    # parser.add_argument('--coco_path', default=r'/data/liuyf/Project/Dataset/COCO2017', type=str)
 
-    parser.add_argument('--dataset_file', default='VOC')
-    parser.add_argument('--class_nums', default=20, type=int)
-    parser.add_argument('--coco_path', default=r'/data/liuyf/Project/Dataset/VOC2012/VOC2012_COCO_sub/', type=str)
+    # parser.add_argument('--dataset_file', default='VOC')
+    # parser.add_argument('--class_nums', default=20, type=int)
+    # parser.add_argument('--coco_path', default=r'/data/liuyf/Project/Dataset/VOC2012/VOC2012_COCO/', type=str)
+
+    # parser.add_argument('--dataset_file', default='VOC')
+    # parser.add_argument('--class_nums', default=20, type=int)
+    # parser.add_argument('--coco_path', default=r'/data/liuyf/Project/Dataset/VOC2012/VOC2012_COCO_sub/', type=str) # voc测试
+
+    parser.add_argument('--dataset_file', default='COCO')
+    parser.add_argument('--class_nums', default=90, type=int) # 原本为91，包含背景
+    parser.add_argument('--coco_path', default=r'/data/liuyf/Project/Dataset/COCO2017', type=str)
 
     parser.add_argument('--coco_class_nums', default=91, type=int) # 源代码设置
 
@@ -361,42 +366,6 @@ def main(args):
         # for n, p in model_without_ddp.named_parameters():
         #     print(n)
         # return
-
-        # param_dicts = [
-        #     {
-        #         "params":
-        #             [p for n, p in model_without_ddp.named_parameters()
-        #             if not match_name_keywords(n, args.lr_backbone_names) and not match_name_keywords(n, args.lr_linear_proj_names) and p.requires_grad],
-        #         "lr": args.lr,
-        #     },
-        #     {
-        #         "params": [p for n, p in model_without_ddp.named_parameters() if match_name_keywords(n, args.lr_backbone_names) and p.requires_grad],
-        #         "lr": args.lr_backbone,
-        #     },
-        #     {
-        #         "params": [p for n, p in model_without_ddp.named_parameters() if match_name_keywords(n, args.lr_linear_proj_names) and p.requires_grad],
-        #         "lr": args.lr * args.lr_linear_proj_mult,
-        #     }
-        # ]
-
-        # print('setting the optimizer...')
-
-        # if args.sgd:
-        #     optimizer = torch.optim.SGD(param_dicts, lr=args.lr, momentum=0.9,
-        #                                 weight_decay=args.weight_decay)
-        # else:
-        #     optimizer = torch.optim.AdamW(param_dicts, lr=args.lr,
-        #                                 weight_decay=args.weight_decay)
-        # lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_drop)
-
-        # if phase_idx >= 1:
-        #     if args.sgd:
-        #         optimizer_balanced = torch.optim.SGD(param_dicts, lr=args.lr, momentum=0.9,
-        #                                     weight_decay=args.weight_decay)
-        #     else:
-        #         optimizer_balanced = torch.optim.AdamW(param_dicts, lr=args.lr,
-        #                                     weight_decay=args.weight_decay)
-        #     lr_scheduler_balanced = torch.optim.lr_scheduler.StepLR(optimizer_balanced, args.lr_drop_balanced)
         
         optimizer,lr_scheduler = get_optimizer_lr_scheduler(args, model_without_ddp)
         
@@ -538,7 +507,7 @@ def main(args):
                           
         else: # 增量学习阶段
             if phase_idx >= 1:
-                old_model = copy.deepcopy(model)
+                old_model = copy.deepcopy(model) # 复制旧模型
             
             # 是否断点重载
             if args.is_checkpoint:

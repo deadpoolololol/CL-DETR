@@ -109,7 +109,7 @@ class DeformableDETR(nn.Module):
 
         # 如果 num_classes != coco_classes，则创建额外的映射层
         if num_classes != coco_classes:
-            self.custom_class_embed = nn.Linear(coco_classes, num_classes)  
+            self.custom_class_embed = nn.Linear(coco_classes, num_classes)  # num_classes+1 包含背景类
             # 初始化新层，一般用 Xavier 初始化
             nn.init.xavier_uniform_(self.custom_class_embed.weight)
             nn.init.constant_(self.custom_class_embed.bias, 0)
@@ -180,15 +180,12 @@ class DeformableDETR(nn.Module):
         outputs_class = torch.stack(outputs_classes)
         outputs_coord = torch.stack(outputs_coords)
 
-        # 如果设置了 custom_class_embed 对所有 decoder 层的 logits 做映射
+        # 如果设置了 custom_class_embed，则对所有 decoder 层的 logits 做映射
         if self.custom_class_embed is not None:
             # Linear 能对最后一维批量处理，所以可以直接传入四维张量
             outputs_class = self.custom_class_embed(outputs_class)  # 变为 [num_layers, batch, num_queries, num_classes+1]
-        final_logits = outputs_class[-1]
-        # 如果设置了 custom_class_embed 计算最后一层输出
-        if self.custom_class_embed is not None:
-             # 应用额外全连接层
-            final_logits = self.custom_class_embed(final_logits)
+
+        final_logits = outputs_class[-1]  # 最后一层（已经映射）
 
         out = {'pred_logits': final_logits, 'pred_boxes': outputs_coord[-1]}
         if self.aux_loss:
@@ -199,6 +196,7 @@ class DeformableDETR(nn.Module):
             if self.custom_class_embed is not None:
                 enc_outputs_class = self.custom_class_embed(enc_outputs_class)
             out['enc_outputs'] = {'pred_logits': enc_outputs_class, 'pred_boxes': enc_outputs_coord}
+
         return out
 
     @torch.jit.unused

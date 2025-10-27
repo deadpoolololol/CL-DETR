@@ -20,15 +20,15 @@ from torch.utils.tensorboard import SummaryWriter
 
 def get_args_parser():
     parser = argparse.ArgumentParser('Deformable DETR Detector', add_help=False)
-    parser.add_argument('--lr', default=2e-3, type=float)
-    parser.add_argument('--lr_backbone_names', default=["backbone.0"], type=str, nargs='+')
-    parser.add_argument('--lr_backbone', default=2e-5, type=float)
+    parser.add_argument('--lr', default=2e-3, type=float) # 学习率 修改
+    parser.add_argument('--lr_backbone_names', default=["backbone.0"], type=str, nargs='+') 
+    parser.add_argument('--lr_backbone', default=2e-5, type=float) # 主干网络学习率 修改
     parser.add_argument('--lr_linear_proj_names', default=['reference_points', 'sampling_offsets'], type=str, nargs='+')
     parser.add_argument('--lr_linear_proj_mult', default=0.1, type=float)
-    parser.add_argument('--batch_size', default=2, type=int)
-    parser.add_argument('--batch_size_val', default=8, type=int)
+    parser.add_argument('--batch_size', default=4, type=int) # 训练批量大小 修改
+    parser.add_argument('--batch_size_val', default=8, type=int) # 测试批量大小 修改
     parser.add_argument('--weight_decay', default=1e-4, type=float)
-    parser.add_argument('--epochs', default=10, type=int)
+    parser.add_argument('--epochs', default=10, type=int) # 训练轮数 修改
     parser.add_argument('--lr_drop', default=10, type=int) # 40
     parser.add_argument('--lr_drop_balanced', default=10, type=int)
     parser.add_argument('--lr_drop_epochs', default=None, type=int, nargs='+')
@@ -44,14 +44,18 @@ def get_args_parser():
 
     # Model parameters
     # parser.add_argument('--frozen_weights', type=str, default=r"outputs\phase_0\checkpoint_base_2.pth",
-    #                     help="Path to the pretrained model. If set, only the mask head will be trained")
+    #                     help="Path to the pretrained model. If set, only the mask head will be trained") # 只针对分割任务
     parser.add_argument('--frozen_weights', type=str, default=None,
-                        help="Path to the pretrained model. If set, only the mask head will be trained")
-    parser.add_argument('--pretrain_weight', type=str, default=r"outputs\phase_1\checkpoint_cre_8.pth",
+                        help="Path to the pretrained model. If set, only the mask head will be trained") # 只针对分割任务
+    
+    # parser.add_argument('--pretrain_weight', type=str, default=r"outputs/phase_0/checkpoint_base_0.pth",
+    #                     help="Path to the pretrained model.") # 断点恢复
+    # parser.add_argument('--is_checkpoint', type=bool, default=True,
+    #                     help="是否加载断点.")
+
+    parser.add_argument('--pretrain_weight', type=str, default=None,
                         help="Path to the pretrained model.")
-    # parser.add_argument('--pretrain_weight', type=str, default=None,
-    #                     help="Path to the pretrained model.")
-    parser.add_argument('--is_checkpoint', type=bool, default=True,
+    parser.add_argument('--is_checkpoint', type=bool, default=False,
                         help="是否加载断点.")
 
     # * Backbone
@@ -114,12 +118,14 @@ def get_args_parser():
 
     # dataset parameters
     # parser.add_argument('--dataset_file', default='COCO')
-    parser.add_argument('--dataset_file', default='VOC')
     # parser.add_argument('--class_nums', default=91, type=int)
+    # parser.add_argument('--coco_path', default=r'/data/liuyf/Project/Dataset/COCO2017', type=str)
+
+    parser.add_argument('--dataset_file', default='VOC')
     parser.add_argument('--class_nums', default=20, type=int)
-    parser.add_argument('--coco_class_nums', default=91, type=int)
-    parser.add_argument('--coco_path', default=r'E:\Project\Dataset\VOC2012\VOC2012_COCO', type=str)
-    # parser.add_argument('--coco_path', default=r'D:\My_passport\Project\Dataset\coco', type=str)
+    parser.add_argument('--coco_path', default=r'/data/liuyf/Project/Dataset/VOC2012/VOC2012_COCO/', type=str)
+
+    parser.add_argument('--coco_class_nums', default=91, type=int) # 源代码设置
 
     parser.add_argument('--coco_panoptic_path', type=str)
     parser.add_argument('--remove_difficult', action='store_true')
@@ -132,12 +138,12 @@ def get_args_parser():
     parser.add_argument('--resume', default='', help='resume from checkpoint')
     parser.add_argument('--start_epoch', default=0, type=int, metavar='N',
                         help='start epoch')
-    parser.add_argument('--num_workers', default=0, type=int)
+    parser.add_argument('--num_workers', default=0, type=int) # 数据加载线程数 修改
     parser.add_argument('--cache_mode', default=False, action='store_true', help='whether to cache images on memory')
 
     # incremental parameters 
-    parser.add_argument('--num_of_phases', default=2, type=int)
-    parser.add_argument('--cls_per_phase', default=5, type=int)
+    parser.add_argument('--num_of_phases', default=2, type=int) # 任务阶段 修改
+    parser.add_argument('--cls_per_phase', default=5, type=int) # 每阶段增量类别数 修改
     parser.add_argument('--data_setting', default='tfh', choices=['tfs', 'tfh']) # tfs 任务分步训练 tfh 任务分组训练
 
     parser.add_argument('--seed_cls', default=123, type=int)
@@ -277,7 +283,8 @@ def main(args):
     ann_memory = {}
     imgToAnns_memory = {}
 
-    checkpoint = torch.load(args.pretrain_weight, map_location='cpu')
+    if args.pretrain_weight is not None:
+        checkpoint = torch.load(args.pretrain_weight, map_location='cpu')
 
     # 获取checkpoint中的phase_idx
     try:

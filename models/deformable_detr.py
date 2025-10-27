@@ -31,7 +31,7 @@ class DeformableDETR(nn.Module):
         Parameters:
             backbone: torch module of the backbone to be used. See backbone.py
             transformer: torch module of the transformer architecture. See transformer.py
-            num_classes: number of object classes (不包含 no-object)
+            num_classes: number of object classes
             num_queries: number of object queries, ie detection slot. This is the maximal number of objects
                          DETR can detect in a single image. For COCO, we recommend 100 queries.
             aux_loss: True if auxiliary decoding losses (loss at each decoder layer) are to be used.
@@ -42,11 +42,10 @@ class DeformableDETR(nn.Module):
         self.num_queries = num_queries
         self.transformer = transformer
         hidden_dim = transformer.d_model
-
-        # 输出类别数：num_classes + 1（最后一位为 no-object / background）
-        out_classes = num_classes + 1
-        self.class_embed = nn.Linear(hidden_dim, out_classes)
-
+        
+        coco_classes = 91  # 预训练coco类别
+        self.class_embed = nn.Linear(hidden_dim, coco_classes)
+        
         self.bbox_embed = MLP(hidden_dim, hidden_dim, 4, 3)
         self.num_feature_levels = num_feature_levels
         if not two_stage:
@@ -80,8 +79,7 @@ class DeformableDETR(nn.Module):
 
         prior_prob = 0.01
         bias_value = -math.log((1 - prior_prob) / prior_prob)
-        # 对 class_embed 的 bias 进行初始化（应用于所有输出维度）
-        self.class_embed.bias.data = torch.ones(out_classes) * bias_value
+        self.class_embed.bias.data = torch.ones(coco_classes) * bias_value
         nn.init.constant_(self.bbox_embed.layers[-1].weight.data, 0)
         nn.init.constant_(self.bbox_embed.layers[-1].bias.data, 0)
         for proj in self.input_proj:
@@ -91,29 +89,33 @@ class DeformableDETR(nn.Module):
         # if two-stage, the last class_embed and bbox_embed is for region proposal generation
         num_pred = (transformer.decoder.num_layers + 1) if two_stage else transformer.decoder.num_layers
         if with_box_refine:
-            # 克隆为每一层都拥有独立 head（class & box）
             self.class_embed = _get_clones(self.class_embed, num_pred)
+            self.custom_class_embed = None
             self.bbox_embed = _get_clones(self.bbox_embed, num_pred)
             nn.init.constant_(self.bbox_embed[0].layers[-1].bias.data[2:], -2.0)
             # hack implementation for iterative bounding box refinement
             self.transformer.decoder.bbox_embed = self.bbox_embed
         else:
-            # 不进行逐层 refine 时，复用同一个 head（包装为 ModuleList 以便兼容后续代码）
             nn.init.constant_(self.bbox_embed.layers[-1].bias.data[2:], -2.0)
             self.class_embed = nn.ModuleList([self.class_embed for _ in range(num_pred)])
+            self.custom_class_embed = None
             self.bbox_embed = nn.ModuleList([self.bbox_embed for _ in range(num_pred)])
             self.transformer.decoder.bbox_embed = None
-
         if two_stage:
             # hack implementation for two-stage
             self.transformer.decoder.class_embed = self.class_embed
             for box_embed in self.bbox_embed:
                 nn.init.constant_(box_embed.layers[-1].bias.data[2:], 0.0)
 
-        # 注意：不再使用 custom_class_embed 映射，输出直接为 num_classes + 1（包含 background）
+        # 如果 num_classes != coco_classes，则创建额外的映射层
+        if num_classes != coco_classes:
+            self.custom_class_embed = nn.Linear(coco_classes, num_classes)  
+            # 初始化新层，一般用 Xavier 初始化
+            nn.init.xavier_uniform_(self.custom_class_embed.weight)
+            nn.init.constant_(self.custom_class_embed.bias, 0)
 
     def forward(self, samples: NestedTensor):
-        """ The forward expects a NestedTensor, which consists of:
+        """ The forward expects a NestedTensor, which consists of:
                - samples.tensor: batched images, of shape [batch_size x 3 x H x W]
                - samples.mask: a binary mask of shape [batch_size x H x W], containing 1 on padded pixels
 
@@ -123,6 +125,7 @@ class DeformableDETR(nn.Module):
                - "pred_boxes": The normalized boxes coordinates for all queries, represented as
                                (center_x, center_y, height, width). These values are normalized in [0, 1],
                                relative to the size of each individual image (disregarding possible padding).
+                               See PostProcess for information on how to retrieve the unnormalized bounding box.
                - "aux_outputs": Optional, only returned when auxilary losses are activated. It is a list of
                                 dictionnaries containing the two above keys for each decoder layer.
         """
@@ -177,8 +180,15 @@ class DeformableDETR(nn.Module):
         outputs_class = torch.stack(outputs_classes)
         outputs_coord = torch.stack(outputs_coords)
 
-        # 直接使用最后一层输出（包含 background/no-object）
+        # 如果设置了 custom_class_embed 对所有 decoder 层的 logits 做映射
+        if self.custom_class_embed is not None:
+            # Linear 能对最后一维批量处理，所以可以直接传入四维张量
+            outputs_class = self.custom_class_embed(outputs_class)  # 变为 [num_layers, batch, num_queries, num_classes+1]
         final_logits = outputs_class[-1]
+        # 如果设置了 custom_class_embed 计算最后一层输出
+        if self.custom_class_embed is not None:
+             # 应用额外全连接层
+            final_logits = self.custom_class_embed(final_logits)
 
         out = {'pred_logits': final_logits, 'pred_boxes': outputs_coord[-1]}
         if self.aux_loss:
@@ -186,6 +196,8 @@ class DeformableDETR(nn.Module):
 
         if self.two_stage:
             enc_outputs_coord = enc_outputs_coord_unact.sigmoid()
+            if self.custom_class_embed is not None:
+                enc_outputs_class = self.custom_class_embed(enc_outputs_class)
             out['enc_outputs'] = {'pred_logits': enc_outputs_class, 'pred_boxes': enc_outputs_coord}
         return out
 
@@ -234,22 +246,19 @@ class SetCriterion(nn.Module):
                                     dtype=torch.int64, device=src_logits.device)
         target_classes[idx] = target_classes_o # 把匹配到的真实标签 target_classes_o，赋值到对应预测框位置
 
-        target_classes_onehot = torch.zeros([src_logits.shape[0], src_logits.shape[1], src_logits.shape[2] ],
+        target_classes_onehot = torch.zeros([src_logits.shape[0], src_logits.shape[1], src_logits.shape[2] + 1],
                                             dtype=src_logits.dtype, layout=src_logits.layout, device=src_logits.device)
-        # 注意：src_logits.shape[2] 应为 num_classes + 1，此处我们需要把真实类别位置设置为 1（background 的 index = self.num_classes）
         target_classes_onehot.scatter_(2, target_classes.unsqueeze(-1), 1)
 
-        # 在 focal loss 中，通常不传 background 的 one-hot（依据原实现），但这里实现为直接使用所有 logits
-        # 如果你的 sigmoid_focal_loss 期待的 channel 数是 num_classes（不含 background），请根据实现做适配。
-        # 下面保持原实现风格：不移除最后一位。
+        target_classes_onehot = target_classes_onehot[:,:,:-1]
         loss_ce = sigmoid_focal_loss(src_logits, target_classes_onehot, num_boxes, alpha=self.focal_alpha, gamma=2) * src_logits.shape[1]
         losses = {'loss_ce': loss_ce}
 
         if log:
             # TODO this should probably be a separate loss, not hacked in this one here
-            # 注意：accuracy 需要传入不含 background 的 logits 与对应标签，这里沿用原来实现对 idx 的索引
             losses['class_error'] = 100 - accuracy(src_logits[idx], target_classes_o)[0]
         return losses
+
     @torch.no_grad()
     def loss_cardinality(self, outputs, targets, indices, num_boxes):
         """ Compute the cardinality error, ie the absolute error in the number of predicted non-empty boxes

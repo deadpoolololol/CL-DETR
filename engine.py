@@ -19,6 +19,9 @@ def train_one_epoch_incremental(model: torch.nn.Module, old_model: torch.nn.Modu
                     criterion: torch.nn.Module, postprocessors,
                     data_loader: Iterable, optimizer: torch.optim.Optimizer,
                     device: torch.device, epoch: int, max_norm: float = 0):
+    if len(data_loader) == 0:
+        print("[INFO] No training samples found. Skipping training phase.")
+        return {}
     model.train()
     criterion.train()
     old_model.eval()
@@ -110,6 +113,9 @@ def train_one_epoch_incremental(model: torch.nn.Module, old_model: torch.nn.Modu
 def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     data_loader: Iterable, optimizer: torch.optim.Optimizer,
                     device: torch.device, epoch: int, max_norm: float = 0):
+    if len(data_loader) == 0:
+        print("[INFO] No training samples found. Skipping training phase.")
+        return {}
     model.train()
     criterion.train()
     metric_logger = utils.MetricLogger(delimiter="  ")

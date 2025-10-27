@@ -225,6 +225,11 @@ class MetricLogger(object):
         self.meters[name] = meter
 
     def log_every(self, iterable, print_freq, header=None):
+        # ✅ 新增保护逻辑：如果 iterable 为空，直接提示并返回
+        if len(iterable) == 0:
+            print(f"[WARNING] Empty iterable detected in log_every (header={header}). Skipping loop.")
+            return
+        
         i = 0
         if not header:
             header = ''
@@ -275,8 +280,10 @@ class MetricLogger(object):
             end = time.time()
         total_time = time.time() - start_time
         total_time_str = str(datetime.timedelta(seconds=int(total_time)))
+        # ✅ 这里也保护一下除零
+        avg_time = total_time / len(iterable) if len(iterable) > 0 else 0
         print('{} Total time: {} ({:.4f} s / it)'.format(
-            header, total_time_str, total_time / len(iterable)))
+            header, total_time_str, avg_time))
 
 
 def get_sha():

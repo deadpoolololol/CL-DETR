@@ -28,7 +28,7 @@ def get_args_parser():
     parser.add_argument('--batch_size', default=4, type=int) # 训练批量大小 修改
     parser.add_argument('--batch_size_val', default=8, type=int) # 测试批量大小 修改
     parser.add_argument('--weight_decay', default=1e-4, type=float)
-    parser.add_argument('--epochs', default=10, type=int) # 训练轮数 修改
+    parser.add_argument('--epochs', default=5, type=int) # 训练轮数 修改
     parser.add_argument('--lr_drop', default=10, type=int) # 40
     parser.add_argument('--lr_drop_balanced', default=10, type=int)
     parser.add_argument('--lr_drop_epochs', default=None, type=int, nargs='+')
@@ -123,7 +123,7 @@ def get_args_parser():
 
     parser.add_argument('--dataset_file', default='VOC')
     parser.add_argument('--class_nums', default=20, type=int)
-    parser.add_argument('--coco_path', default=r'/data/liuyf/Project/Dataset/VOC2012/VOC2012_COCO/', type=str)
+    parser.add_argument('--coco_path', default=r'/data/liuyf/Project/Dataset/VOC2012/VOC2012_COCO_sub/', type=str)
 
     parser.add_argument('--coco_class_nums', default=91, type=int) # 源代码设置
 
@@ -529,7 +529,7 @@ def main(args):
 
                     print("Testing results for all.")
                     test_stats, coco_evaluator = evaluate(
-                    model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir,"base")
+                    model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir,epoch,"base")
             
             # print("Testing all....")
             # test_stats, coco_evaluator = evaluate(

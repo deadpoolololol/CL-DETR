@@ -42,7 +42,16 @@ class CocoEvaluator(object):
             # suppress pycocotools prints
             with open(os.devnull, 'w') as devnull:
                 with contextlib.redirect_stdout(devnull):
-                    coco_dt = COCO.loadRes(self.coco_gt, results) if results else COCO()
+                    if results:
+                        # 修复 COCO 标注缺失 info 字段的问题
+                        if 'info' not in self.coco_gt.dataset:
+                            self.coco_gt.dataset['info'] = {"description": "autofix"}
+                        if 'licenses' not in self.coco_gt.dataset:
+                            self.coco_gt.dataset['licenses'] = []
+                        coco_dt = COCO.loadRes(self.coco_gt, results)
+                    else:
+                        coco_dt = COCO()
+
             coco_eval = self.coco_eval[iou_type]
 
             coco_eval.cocoDt = coco_dt

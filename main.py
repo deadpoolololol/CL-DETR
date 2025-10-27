@@ -118,16 +118,17 @@ def get_args_parser():
 
     # dataset parameters
 
+    # # 用于测试代码运行
     # parser.add_argument('--dataset_file', default='VOC')
-    # parser.add_argument('--class_nums', default=20, type=int) # 20类 包含背景
-    # parser.add_argument('--coco_path', default=r'/data/liuyf/Project/Dataset/VOC2012/VOC2012_COCO/', type=str)
+    # parser.add_argument('--class_nums', default=21, type=int) # 20+1 包含背景
+    # parser.add_argument('--coco_path', default=r'/data/liuyf/Project/Dataset/VOC2012/VOC2012_COCO_sub/', type=str) # voc测试
 
     parser.add_argument('--dataset_file', default='VOC')
-    parser.add_argument('--class_nums', default=21, type=int) # 20类 包含背景
-    parser.add_argument('--coco_path', default=r'/data/liuyf/Project/Dataset/VOC2012/VOC2012_COCO_sub/', type=str) # voc测试
+    parser.add_argument('--class_nums', default=21, type=int) # 20+1 包含背景
+    parser.add_argument('--coco_path', default=r'/data/liuyf/Project/Dataset/VOC2012/VOC2012_COCO/', type=str)
 
     # parser.add_argument('--dataset_file', default='COCO')
-    # parser.add_argument('--class_nums', default=91, type=int) # 90类 包含背景
+    # parser.add_argument('--class_nums', default=91, type=int) # 90+1 包含背景
     # parser.add_argument('--coco_path', default=r'/data/liuyf/Project/Dataset/COCO2017', type=str)
 
     parser.add_argument('--coco_class_nums', default=91, type=int) # 源代码设置

@@ -20,16 +20,16 @@ from torch.utils.tensorboard import SummaryWriter
 
 def get_args_parser():
     parser = argparse.ArgumentParser('Deformable DETR Detector', add_help=False)
-    parser.add_argument('--lr', default=2e-3, type=float) # 学习率 修改
+    parser.add_argument('--lr', default=2e-4, type=float) # 学习率 修改
     parser.add_argument('--lr_backbone_names', default=["backbone.0"], type=str, nargs='+') 
     parser.add_argument('--lr_backbone', default=2e-5, type=float) # 主干网络学习率 修改
     parser.add_argument('--lr_linear_proj_names', default=['reference_points', 'sampling_offsets'], type=str, nargs='+')
     parser.add_argument('--lr_linear_proj_mult', default=0.1, type=float)
-    parser.add_argument('--batch_size', default=2, type=int) # 训练批量大小 修改
+    parser.add_argument('--batch_size', default=4, type=int) # 训练批量大小 修改
     parser.add_argument('--batch_size_val', default=4, type=int) # 测试批量大小 修改
     parser.add_argument('--weight_decay', default=1e-4, type=float)
-    parser.add_argument('--epochs', default=2, type=int) # 训练轮数 修改
-    parser.add_argument('--lr_drop', default=10, type=int) # 40
+    parser.add_argument('--epochs', default=50, type=int) # 训练轮数 修改
+    parser.add_argument('--lr_drop', default=40, type=int) # 40
     parser.add_argument('--lr_drop_balanced', default=10, type=int)
     parser.add_argument('--lr_drop_epochs', default=None, type=int, nargs='+')
     parser.add_argument('--clip_max_norm', default=0.1, type=float,
@@ -48,7 +48,8 @@ def get_args_parser():
     parser.add_argument('--frozen_weights', type=str, default=None,
                         help="Path to the pretrained model. If set, only the mask head will be trained") # 只针对分割任务
     
-    # parser.add_argument('--pretrain_weight', type=str, default=r"outputs/phase_0/checkpoint_base_0.pth",
+    # # 加载断点
+    # parser.add_argument('--pretrain_weight', type=str, default=r"outputs/phase_0/checkpoint_base_1.pth",
     #                     help="Path to the pretrained model.") # 断点恢复
     # parser.add_argument('--is_checkpoint', type=bool, default=True,
     #                     help="是否加载断点.")
@@ -118,14 +119,14 @@ def get_args_parser():
 
     # dataset parameters
 
-    # # 用于测试代码运行
-    # parser.add_argument('--dataset_file', default='VOC')
-    # parser.add_argument('--class_nums', default=21, type=int) # 20+1 包含背景
-    # parser.add_argument('--coco_path', default=r'/data/liuyf/Project/Dataset/VOC2012/VOC2012_COCO_sub/', type=str) # voc测试
-
+    # 用于测试代码运行
     parser.add_argument('--dataset_file', default='VOC')
     parser.add_argument('--class_nums', default=21, type=int) # 20+1 包含背景
-    parser.add_argument('--coco_path', default=r'/data/liuyf/Project/Dataset/VOC2012/VOC2012_COCO/', type=str)
+    parser.add_argument('--coco_path', default=r'/data/liuyf/Project/Dataset/VOC2012/VOC2012_COCO_sub/', type=str) # voc测试
+
+    # parser.add_argument('--dataset_file', default='VOC')
+    # parser.add_argument('--class_nums', default=21, type=int) # 20+1 包含背景
+    # parser.add_argument('--coco_path', default=r'/data/liuyf/Project/Dataset/VOC2012/VOC2012_COCO/', type=str)
 
     # parser.add_argument('--dataset_file', default='COCO')
     # parser.add_argument('--class_nums', default=91, type=int) # 90+1 包含背景
@@ -178,40 +179,58 @@ def get_optimizer_lr_scheduler(args,model,phase_idx=0):
                     break
             return out
     
-    # 如果自定义数据集,并且只有base阶段
-    if args.class_nums != 91 and phase_idx==0: 
-        # 冻结所有层
-        for name, param in model.named_parameters():
-            if "custom_class_embed" not in name:
-                param.requires_grad = False
+    # # 如果自定义数据集,并且是base阶段
+    # if args.class_nums != 91 and phase_idx==0: 
+    #     # 冻结所有层
+    #     for name, param in model.named_parameters():
+    #         if "custom_class_embed" not in name:
+    #             param.requires_grad = False
 
-        param_dicts = [
-            {
-                "params":
-                    [p for n, p in model.named_parameters()
-                    if "custom_class_embed" in n and p.requires_grad],
-                "lr": args.lr,
-            }
-        ]
+    #     param_dicts = [
+    #         {
+    #             "params":
+    #                 [p for n, p in model.named_parameters()
+    #                 if "custom_class_embed" in n and p.requires_grad],
+    #             "lr": args.lr,
+    #         }
+    #     ]
 
-    else :
-        param_dicts = [
-            {
-                "params":
-                    [p for n, p in model.named_parameters()
-                    if not match_name_keywords(n, args.lr_backbone_names) and not match_name_keywords(n, args.lr_linear_proj_names) and p.requires_grad],
-                "lr": args.lr,
-            },
-            {
-                "params": [p for n, p in model.named_parameters() if match_name_keywords(n, args.lr_backbone_names) and p.requires_grad],
-                "lr": args.lr_backbone,
-            },
-            {
-                "params": [p for n, p in model.named_parameters() if match_name_keywords(n, args.lr_linear_proj_names) and p.requires_grad],
-                "lr": args.lr * args.lr_linear_proj_mult,
-            }
-        ]
-        print('setting the optimizer...')
+    # else :
+    #     param_dicts = [
+    #         {
+    #             "params":
+    #                 [p for n, p in model.named_parameters()
+    #                 if not match_name_keywords(n, args.lr_backbone_names) and not match_name_keywords(n, args.lr_linear_proj_names) and p.requires_grad],
+    #             "lr": args.lr,
+    #         },
+    #         {
+    #             "params": [p for n, p in model.named_parameters() if match_name_keywords(n, args.lr_backbone_names) and p.requires_grad],
+    #             "lr": args.lr_backbone,
+    #         },
+    #         {
+    #             "params": [p for n, p in model.named_parameters() if match_name_keywords(n, args.lr_linear_proj_names) and p.requires_grad],
+    #             "lr": args.lr * args.lr_linear_proj_mult,
+    #         }
+    #     ]
+    #     print('setting the optimizer...')
+
+    param_dicts = [
+        {
+            "params":
+                [p for n, p in model.named_parameters()
+                if not match_name_keywords(n, args.lr_backbone_names) and not match_name_keywords(n, args.lr_linear_proj_names) and p.requires_grad],
+            "lr": args.lr,
+        },
+        {
+            "params": [p for n, p in model.named_parameters() if match_name_keywords(n, args.lr_backbone_names) and p.requires_grad],
+            "lr": args.lr_backbone,
+        },
+        {
+            "params": [p for n, p in model.named_parameters() if match_name_keywords(n, args.lr_linear_proj_names) and p.requires_grad],
+            "lr": args.lr * args.lr_linear_proj_mult,
+        }
+    ]
+    print('setting the optimizer...')
 
     if args.sgd:
         optimizer = torch.optim.SGD(param_dicts, lr=args.lr, momentum=0.9,
@@ -368,7 +387,7 @@ def main(args):
         #     print(n)
         # return
         
-        optimizer,lr_scheduler = get_optimizer_lr_scheduler(args, model_without_ddp)
+        optimizer,lr_scheduler = get_optimizer_lr_scheduler(args, model_without_ddp,phase_idx)
         
         if phase_idx >= 1:
             optimizer_balanced,lr_scheduler_balanced = get_optimizer_lr_scheduler(args, model_without_ddp,phase_idx)

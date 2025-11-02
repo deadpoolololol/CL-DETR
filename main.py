@@ -25,10 +25,10 @@ def get_args_parser():
     parser.add_argument('--lr_backbone', default=2e-5, type=float) # 主干网络学习率 修改
     parser.add_argument('--lr_linear_proj_names', default=['reference_points', 'sampling_offsets'], type=str, nargs='+')
     parser.add_argument('--lr_linear_proj_mult', default=0.1, type=float)
-    parser.add_argument('--batch_size', default=4, type=int) # 训练批量大小 修改
+    parser.add_argument('--batch_size', default=1, type=int) # 训练批量大小 修改
     parser.add_argument('--batch_size_val', default=4, type=int) # 测试批量大小 修改
     parser.add_argument('--weight_decay', default=1e-4, type=float)
-    parser.add_argument('--epochs', default=50, type=int) # 训练轮数 修改
+    parser.add_argument('--epochs', default=2, type=int) # 训练轮数 修改
     parser.add_argument('--lr_drop', default=40, type=int) # 40
     parser.add_argument('--lr_drop_balanced', default=10, type=int)
     parser.add_argument('--lr_drop_epochs', default=None, type=int, nargs='+')
@@ -49,7 +49,7 @@ def get_args_parser():
                         help="Path to the pretrained model. If set, only the mask head will be trained") # 只针对分割任务
     
     # # 加载断点
-    # parser.add_argument('--pretrain_weight', type=str, default=r"outputs/phase_0/checkpoint_base_1.pth",
+    # parser.add_argument('--pretrain_weight', type=str, default=r"outputs/r50_deformable_detr/70+10/phase_0/phase_0.pth",
     #                     help="Path to the pretrained model.") # 断点恢复
     # parser.add_argument('--is_checkpoint', type=bool, default=True,
     #                     help="是否加载断点.")
@@ -150,7 +150,7 @@ def get_args_parser():
 
     # incremental parameters 
     parser.add_argument('--num_of_phases', default=2, type=int) # 任务阶段 修改
-    parser.add_argument('--cls_per_phase', default=5, type=int) # 每阶段增量类别数 修改
+    parser.add_argument('--cls_per_phase', default=10, type=int) # 每阶段增量类别数 修改
     parser.add_argument('--data_setting', default='tfh', choices=['tfs', 'tfh']) # tfs 任务分步训练 tfh 任务分组训练
 
     parser.add_argument('--seed_cls', default=123, type=int)
@@ -159,7 +159,7 @@ def get_args_parser():
     parser.add_argument('--mem_rate', default=0.1, type=float)
 
     parser.add_argument('--debug_mode', default=False, action='store_true')
-    parser.add_argument('--balanced_ft', default=True, action='store_true')
+    parser.add_argument('--balanced_ft', default=True, action='store_true') # 平衡微调
 
     # weak supervision parameters
     parser.add_argument('--k_layers', default=2, type=int,help='ALN 层数')

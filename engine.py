@@ -30,80 +30,180 @@ def train_one_epoch_incremental(model: torch.nn.Module, old_model: torch.nn.Modu
     metric_logger.add_meter('class_error', utils.SmoothedValue(window_size=1, fmt='{value:.2f}'))
     metric_logger.add_meter('grad_norm', utils.SmoothedValue(window_size=1, fmt='{value:.2f}'))
     header = 'Epoch: [{}]'.format(epoch)
-    print_freq = 50
+    print_freq = 100
 
     prefetcher = data_prefetcher(data_loader, device, prefetch=True)
     samples, targets = prefetcher.next()
 
-    # for samples, targets in metric_logger.log_every(data_loader, print_freq, header):
-    for _ in metric_logger.log_every(range(len(data_loader)), print_freq, header):
+    # # for samples, targets in metric_logger.log_every(data_loader, print_freq, header):
+    # for _ in metric_logger.log_every(range(len(data_loader)), print_freq, header):
+    #     outputs = model(samples)
+
+    #     ref_outputs = old_model(samples)
+    #     orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0) # 原输出尺寸
+        
+    #     # 根据旧模型的输出来生成伪标签
+    #     ref_results = postprocessors['bbox'](ref_outputs, orig_target_sizes, 10, distillation=True) # 取前K=10个
+        
+    #     # 计算旧模型的损失
+    #     ref_loss_dict = criterion(outputs, ref_results, enable_aux=False)
+    #     ref_weight_dict = criterion.ref_weight_dict
+    #     ref_losses = sum(ref_loss_dict[k] * ref_weight_dict[k] for k in ref_loss_dict.keys() if k in ref_weight_dict)
+
+    #     # 使用 IoU（交并比）计算来决定哪些伪标签可以被加入到训练数据
+    #     for img_idx in range(len(targets)):
+    #         include_list = []
+    #         for ref_box_idx in range(len(ref_results[img_idx]['boxes'])):
+    #             this_ref_box = ref_results[img_idx]['boxes'][ref_box_idx]
+    #             this_ref_box = torch.reshape(this_ref_box, (1, -1))
+    #             include_this_pseudo_label = True
+    #             for target_box_idx in range(len(targets[img_idx]['boxes'])):
+    #                 this_target_box = targets[img_idx]['boxes'][target_box_idx]
+    #                 this_target_box = torch.reshape(this_target_box, (1, -1))
+    #                 iou, union = box_ops.box_iou(box_ops.box_cxcywh_to_xyxy(this_ref_box), box_ops.box_cxcywh_to_xyxy(this_target_box))
+    #                 if iou >= 0.7: # λ = 0.7
+    #                     include_this_pseudo_label = False
+    #             include_list.append(include_this_pseudo_label)
+
+    #         # 伪标签会被添加到 targets 中  
+    #         targets[img_idx]['boxes'] = torch.cat((targets[img_idx]['boxes'], ref_results[img_idx]['boxes'][include_list]), 0)
+    #         targets[img_idx]['labels'] = torch.cat((targets[img_idx]['labels'], ref_results[img_idx]['labels'][include_list]), 0)          
+
+    #     loss_dict = criterion(outputs, targets)
+    #     weight_dict = criterion.weight_dict
+    #     losses = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
+
+    #     # reduce losses over all GPUs for logging purposes
+    #     loss_dict_reduced = utils.reduce_dict(loss_dict)
+    #     loss_dict_reduced_unscaled = {f'{k}_unscaled': v
+    #                                   for k, v in loss_dict_reduced.items()}
+    #     loss_dict_reduced_scaled = {k: v * weight_dict[k]
+    #                                 for k, v in loss_dict_reduced.items() if k in weight_dict}
+    #     losses_reduced_scaled = sum(loss_dict_reduced_scaled.values())
+
+    #     loss_value = losses_reduced_scaled.item()
+
+    #     if not math.isfinite(loss_value):
+    #         print("Loss is {}, stopping training".format(loss_value))
+    #         print(loss_dict_reduced)
+    #         sys.exit(1)
+
+    #     #losses += ref_loss_overall_coef*ref_losses
+
+    #     optimizer.zero_grad()
+    #     losses.backward()
+    #     if max_norm > 0:
+    #         grad_total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+    #     else:
+    #         grad_total_norm = utils.get_total_grad_norm(model.parameters(), max_norm)
+    #     optimizer.step()
+
+    #     metric_logger.update(loss=loss_value, **loss_dict_reduced_scaled, **loss_dict_reduced_unscaled)
+    #     metric_logger.update(class_error=loss_dict_reduced['class_error'])
+    #     metric_logger.update(lr=optimizer.param_groups[0]["lr"])
+    #     metric_logger.update(grad_norm=grad_total_norm)
+
+    #     samples, targets = prefetcher.next()
+
+     # 梯度累积参数（在函数内部定义，不改签名）
+    accum_iter = 64  # 累积多少个 mini-batch 再做一次 optimizer.step()
+    optimizer.zero_grad()
+    step = 0
+
+    # 直接用 data_loader 迭代，确保 metric_logger.log_every 在打印时行为与原版一致（避免 ZeroDivisionError）
+    for samples, targets in metric_logger.log_every(data_loader, print_freq, header):
+        # 把数据搬到 device
+        samples = samples.to(device)
+        targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+
+        # forward 当前模型与旧模型（用于伪标签）
         outputs = model(samples)
+        with torch.no_grad():
+            ref_outputs = old_model(samples)
 
-        ref_outputs = old_model(samples)
-        orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0) # 原输出尺寸
-        
-        # 根据旧模型的输出来生成伪标签
-        ref_results = postprocessors['bbox'](ref_outputs, orig_target_sizes, 10, distillation=True) # 取前K=10个
-        
-        # 计算旧模型的损失
+        orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)  # 原输出尺寸
+
+        # 根据旧模型输出生成伪标签（取前K=10）
+        ref_results = postprocessors['bbox'](ref_outputs, orig_target_sizes, 10, distillation=True)
+
+        # 计算旧模型的参考损失（可选权重）
         ref_loss_dict = criterion(outputs, ref_results, enable_aux=False)
-        ref_weight_dict = criterion.ref_weight_dict
-        ref_losses = sum(ref_loss_dict[k] * ref_weight_dict[k] for k in ref_loss_dict.keys() if k in ref_weight_dict)
+        ref_weight_dict = getattr(criterion, 'ref_weight_dict', {})
+        if ref_weight_dict:
+            ref_losses = sum(ref_loss_dict[k] * ref_weight_dict[k] for k in ref_loss_dict.keys() if k in ref_weight_dict)
+        else:
+            ref_losses = torch.tensor(0.0, device=outputs['pred_logits'].device)
 
-        # 使用 IoU（交并比）计算来决定哪些伪标签可以被加入到训练数据
+        # 把符合条件的伪标签添加到 targets 中
         for img_idx in range(len(targets)):
             include_list = []
             for ref_box_idx in range(len(ref_results[img_idx]['boxes'])):
-                this_ref_box = ref_results[img_idx]['boxes'][ref_box_idx]
-                this_ref_box = torch.reshape(this_ref_box, (1, -1))
+                this_ref_box = ref_results[img_idx]['boxes'][ref_box_idx].reshape(1, -1)
                 include_this_pseudo_label = True
                 for target_box_idx in range(len(targets[img_idx]['boxes'])):
-                    this_target_box = targets[img_idx]['boxes'][target_box_idx]
-                    this_target_box = torch.reshape(this_target_box, (1, -1))
-                    iou, union = box_ops.box_iou(box_ops.box_cxcywh_to_xyxy(this_ref_box), box_ops.box_cxcywh_to_xyxy(this_target_box))
-                    if iou >= 0.7: # λ = 0.7
+                    this_target_box = targets[img_idx]['boxes'][target_box_idx].reshape(1, -1)
+                    iou, _ = box_ops.box_iou(
+                        box_ops.box_cxcywh_to_xyxy(this_ref_box),
+                        box_ops.box_cxcywh_to_xyxy(this_target_box)
+                    )
+                    if iou >= 0.7:  # λ = 0.7
                         include_this_pseudo_label = False
+                        break
                 include_list.append(include_this_pseudo_label)
 
-            # 伪标签会被添加到 targets 中  
-            targets[img_idx]['boxes'] = torch.cat((targets[img_idx]['boxes'], ref_results[img_idx]['boxes'][include_list]), 0)
-            targets[img_idx]['labels'] = torch.cat((targets[img_idx]['labels'], ref_results[img_idx]['labels'][include_list]), 0)          
+            if any(include_list):
+                include_mask = torch.tensor(include_list, dtype=torch.bool, device=ref_results[img_idx]['boxes'].device)
+                targets[img_idx]['boxes'] = torch.cat((targets[img_idx]['boxes'], ref_results[img_idx]['boxes'][include_mask]), 0)
+                targets[img_idx]['labels'] = torch.cat((targets[img_idx]['labels'], ref_results[img_idx]['labels'][include_mask]), 0)
 
+        # 计算当前 batch 的损失
         loss_dict = criterion(outputs, targets)
         weight_dict = criterion.weight_dict
         losses = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
 
+        # 如果你希望加上 ref_losses（蒸馏/伪标签损失），取消下面注释并调整系数
+        # losses = losses + ref_loss_overall_coef * ref_losses
+
         # reduce losses over all GPUs for logging purposes
         loss_dict_reduced = utils.reduce_dict(loss_dict)
-        loss_dict_reduced_unscaled = {f'{k}_unscaled': v
-                                      for k, v in loss_dict_reduced.items()}
-        loss_dict_reduced_scaled = {k: v * weight_dict[k]
-                                    for k, v in loss_dict_reduced.items() if k in weight_dict}
+        loss_dict_reduced_unscaled = {f'{k}_unscaled': v for k, v in loss_dict_reduced.items()}
+        loss_dict_reduced_scaled = {k: v * weight_dict[k] for k, v in loss_dict_reduced.items() if k in weight_dict}
         losses_reduced_scaled = sum(loss_dict_reduced_scaled.values())
 
         loss_value = losses_reduced_scaled.item()
-
         if not math.isfinite(loss_value):
             print("Loss is {}, stopping training".format(loss_value))
             print(loss_dict_reduced)
             sys.exit(1)
 
-        #losses += ref_loss_overall_coef*ref_losses
+        # === 梯度累积核心：把 loss 平均到 accum_iter 次（等效大 batch） ===
+        (losses / accum_iter).backward()
+        step += 1
 
-        optimizer.zero_grad()
-        losses.backward()
+        # 每 accum_iter 步或在最后一步，更新一次参数
+        if step % accum_iter == 0:
+            if max_norm > 0:
+                grad_total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+            else:
+                grad_total_norm = utils.get_total_grad_norm(model.parameters(), max_norm)
+            optimizer.step()
+            optimizer.zero_grad()
+            metric_logger.update(grad_norm=grad_total_norm)
+
+        # 更新日志（按原实现）
+        metric_logger.update(loss=loss_value, **loss_dict_reduced_scaled, **loss_dict_reduced_unscaled)
+        metric_logger.update(class_error=loss_dict_reduced.get('class_error', 0.0))
+        metric_logger.update(lr=optimizer.param_groups[0]["lr"])
+
+    # 若最后未满 accum_iter，仍需进行一次参数更新，避免遗留梯度
+    if step % accum_iter != 0:
         if max_norm > 0:
             grad_total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
         else:
             grad_total_norm = utils.get_total_grad_norm(model.parameters(), max_norm)
         optimizer.step()
-
-        metric_logger.update(loss=loss_value, **loss_dict_reduced_scaled, **loss_dict_reduced_unscaled)
-        metric_logger.update(class_error=loss_dict_reduced['class_error'])
-        metric_logger.update(lr=optimizer.param_groups[0]["lr"])
-        metric_logger.update(grad_norm=grad_total_norm)
-
-        samples, targets = prefetcher.next()
+        optimizer.zero_grad()
+    
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
     print("Averaged stats:", metric_logger)
@@ -123,27 +223,67 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     metric_logger.add_meter('class_error', utils.SmoothedValue(window_size=1, fmt='{value:.2f}'))
     metric_logger.add_meter('grad_norm', utils.SmoothedValue(window_size=1, fmt='{value:.2f}'))
     header = 'Epoch: [{}]'.format(epoch)
-    print_freq = 50
+    print_freq = 100
 
+    # prefetcher = data_prefetcher(data_loader, device, prefetch=True)
+    # samples, targets = prefetcher.next()
+
+    # # for samples, targets in metric_logger.log_every(data_loader, print_freq, header):
+    # for _ in metric_logger.log_every(range(len(data_loader)), print_freq, header):
+    #     outputs = model(samples)
+
+    #     loss_dict = criterion(outputs, targets)
+    #     weight_dict = criterion.weight_dict
+    #     losses = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
+
+    #     # reduce losses over all GPUs for logging purposes
+    #     loss_dict_reduced = utils.reduce_dict(loss_dict)
+    #     loss_dict_reduced_unscaled = {f'{k}_unscaled': v
+    #                                   for k, v in loss_dict_reduced.items()}
+    #     loss_dict_reduced_scaled = {k: v * weight_dict[k]
+    #                                 for k, v in loss_dict_reduced.items() if k in weight_dict}
+    #     losses_reduced_scaled = sum(loss_dict_reduced_scaled.values())
+
+    #     loss_value = losses_reduced_scaled.item()
+
+    #     if not math.isfinite(loss_value):
+    #         print("Loss is {}, stopping training".format(loss_value))
+    #         print(loss_dict_reduced)
+    #         sys.exit(1)
+
+    #     optimizer.zero_grad()
+    #     losses.backward()
+    #     if max_norm > 0:
+    #         grad_total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+    #     else:
+    #         grad_total_norm = utils.get_total_grad_norm(model.parameters(), max_norm)
+    #     optimizer.step()
+
+    #     metric_logger.update(loss=loss_value, **loss_dict_reduced_scaled, **loss_dict_reduced_unscaled)
+    #     metric_logger.update(class_error=loss_dict_reduced['class_error'])
+    #     metric_logger.update(lr=optimizer.param_groups[0]["lr"])
+    #     metric_logger.update(grad_norm=grad_total_norm)
+
+    #     samples, targets = prefetcher.next()
+    accum_iter = 64  # 累计多少个 batch 再更新一次梯度
+    optimizer.zero_grad()
     prefetcher = data_prefetcher(data_loader, device, prefetch=True)
     samples, targets = prefetcher.next()
 
-    # for samples, targets in metric_logger.log_every(data_loader, print_freq, header):
-    for _ in metric_logger.log_every(range(len(data_loader)), print_freq, header):
+    for i in metric_logger.log_every(range(len(data_loader)), print_freq, header):
         outputs = model(samples)
-
         loss_dict = criterion(outputs, targets)
         weight_dict = criterion.weight_dict
         losses = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
 
+        # normalize loss to account for gradient accumulation
+        losses = losses / accum_iter  
+
         # reduce losses over all GPUs for logging purposes
         loss_dict_reduced = utils.reduce_dict(loss_dict)
-        loss_dict_reduced_unscaled = {f'{k}_unscaled': v
-                                      for k, v in loss_dict_reduced.items()}
-        loss_dict_reduced_scaled = {k: v * weight_dict[k]
-                                    for k, v in loss_dict_reduced.items() if k in weight_dict}
+        loss_dict_reduced_unscaled = {f'{k}_unscaled': v for k, v in loss_dict_reduced.items()}
+        loss_dict_reduced_scaled = {k: v * weight_dict[k] for k, v in loss_dict_reduced.items() if k in weight_dict}
         losses_reduced_scaled = sum(loss_dict_reduced_scaled.values())
-
         loss_value = losses_reduced_scaled.item()
 
         if not math.isfinite(loss_value):
@@ -151,13 +291,19 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
             print(loss_dict_reduced)
             sys.exit(1)
 
-        optimizer.zero_grad()
+        # backward，但不立即 step
         losses.backward()
-        if max_norm > 0:
-            grad_total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+
+        # 每累计64个 batch 再进行一次梯度更新
+        if (i + 1) % accum_iter == 0 or (i + 1) == len(data_loader):
+            if max_norm > 0:
+                grad_total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+            else:
+                grad_total_norm = utils.get_total_grad_norm(model.parameters(), max_norm)
+            optimizer.step()
+            optimizer.zero_grad()
         else:
             grad_total_norm = utils.get_total_grad_norm(model.parameters(), max_norm)
-        optimizer.step()
 
         metric_logger.update(loss=loss_value, **loss_dict_reduced_scaled, **loss_dict_reduced_unscaled)
         metric_logger.update(class_error=loss_dict_reduced['class_error'])
@@ -165,6 +311,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         metric_logger.update(grad_norm=grad_total_norm)
 
         samples, targets = prefetcher.next()
+
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
     print("Averaged stats:", metric_logger)
@@ -191,7 +338,7 @@ def evaluate_base(model, criterion, postprocessors, data_loader, base_ds, device
             data_loader.dataset.ann_folder,
             output_dir=os.path.join(output_dir, "panoptic_eval"),
         )
-    print_freq = 50 # 每50打印
+    print_freq = 100 # 每50打印
     for samples, targets in metric_logger.log_every(data_loader, print_freq, header):
         samples = samples.to(device)
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
@@ -274,7 +421,7 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, out
 
     loss_list, class_error_list = [], []
     coco_ap_metrics = []  # 用于存储 COCO 评估指标
-    print_freq = 50
+    print_freq = 100 # 每100打印
     for samples, targets in metric_logger.log_every(data_loader, print_freq, header):
         samples = samples.to(device)
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
